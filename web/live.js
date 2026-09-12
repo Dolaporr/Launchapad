@@ -341,8 +341,20 @@ function renderList() {
       </div>
     </div>
     ${state.pads.length ? `<div class="grid">${state.pads.map(padCard).join('')}</div>`
-    : `<div class="empty">${state.busy ? 'Reading from chain…' : factory ? 'No launchpads on this factory yet. Create the first one.' : 'Deploy a factory to get started.'}</div>`}
+    : `<div class="empty">${emptyMessage(factory)}</div>`}
   </section>`;
+}
+
+/**
+ * An empty list and a failed read are different facts and must never look the same. Claiming
+ * "no launchpads yet" when the RPC call actually failed would invite someone to create a
+ * duplicate pad because the UI hid an error.
+ */
+function emptyMessage(factory) {
+  if (state.busy) return 'Reading from chain…';
+  if (state.loadError) return 'Could not read the chain, so the list above is unknown — not empty. Fix the connection and refresh.';
+  if (!factory) return 'Deploy a factory to get started.';
+  return 'No launchpads on this factory yet. Create the first one.';
 }
 
 function padCard(pad) {

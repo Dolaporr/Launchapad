@@ -12,12 +12,14 @@
 export const DEPLOYMENT = {
   chainId: 46630,
   chainName: 'Robinhood Chain Testnet',
-  // Set by scripts/deploy.cjs output. null = not deployed yet.
-  FACTORY_ADDRESS: null,
-  // The vault is deployed alongside the factory but the live UI does not use it yet:
-  // there is no NVDA on testnet and no buyer module, so no reserve flow is exposed.
+  // Live on public Robinhood Chain testnet.
+  // https://explorer.testnet.chain.robinhood.com/address/0x26481da19fC7ac724DE7Dd52f98f7596f2aaBB97
+  FACTORY_ADDRESS: '0x26481da19fC7ac724DE7Dd52f98f7596f2aaBB97',
+  // No ReserveVault was deployed. This factory's supportsNvdaReserve() is false, so it cannot
+  // create an NVDA-preset launchpad at all: there is no official NVDA Stock Token on testnet.
   RESERVE_VAULT: null,
-  deployedAt: null,
+  deployedAt: '2026-09-12T22:31:54Z',
+  deployTx: '0x259edebafb8ba50628bb5ba13113435379337a969f8ec154987103747096c251',
 };
 
 const STORAGE_KEY = 'launchpad-factory-address';

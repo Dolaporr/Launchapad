@@ -23,9 +23,10 @@ Two further facts worth knowing up front, both verified on 2026-09-12:
 1. **There is no mandatory 1% fee on chain.** The launched tokens are plain ERC-20s with no
    transfer hook, and there is no on-chain market. Nothing forces a trade to pay `FeeRouter`.
    The fee is real arithmetic in a real contract; it just has no enforcement point yet.
-2. **Canonical NVDA exists on mainnet only.** Robinhood's live asset registry lists Stock Tokens
-   on chain `4663` and nothing on testnet `46630`. The NVDA leg therefore *cannot* be proven on
-   testnet with the real asset — a testnet run needs a clearly-labelled mock.
+2. **There is no NVDA on Robinhood Chain testnet.** Verified 2026-09-12 — see
+   "Stock Tokens on testnet" below. Robinhood *does* run official Stock Tokens on testnet, but
+   NVDA is not one of them, so the NVDA leg cannot be proven on testnet at all. The canonical
+   NVDA (`0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC`) is mainnet-only.
 
 Everything in this README that says "works" has a test or a command behind it.
 
@@ -155,6 +156,39 @@ launchpad. The honesty boundary is enforced by the contract, not just by the UI 
 If you do want a reserve leg on a test network, you must deploy a clearly-labelled mock and pass
 `SKIP_NVDA_VERIFY=1`. **A mock must never be described as NVDA anywhere in the product.**
 
+### Stock Tokens on testnet — what is and is not real
+
+Investigated 2026-09-12 from the chain itself, after funding a wallet from the official faucet.
+
+The faucet (`0x8762F93772c663c6a88Ba50900bd5381df2717Be`, a verified contract named `Faucet`)
+sent 0.01 ETH and five Stock Tokens by minting them in one transaction:
+
+| Symbol | Name | Testnet address |
+|---|---|---|
+| TSLA | Tesla | `0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E` |
+| AMD | AMD | `0x71178BAc73cBeb415514eB542a8995b82669778d` |
+| AMZN | Amazon | `0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02` |
+| NFLX | Netflix | `0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93` |
+| PLTR | Palantir Technologies | `0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0` |
+
+These look like genuine Robinhood testnet infrastructure: each is a **verified `BeaconProxy`** over
+a shared implementation named `Stock` (`0xBd14156E05c6AF28ad39aA53a2AB8eB9CDf657DA`), 18 decimals,
+implementing ERC-8056 with `uiMultiplier()` returning exactly `1.0`. TSLA alone has ~221k holders.
+
+**There is no NVDA among them**, and the faucet contract holds only those five plus `HODLHOOD`.
+
+The testnet *does* contain many contracts using the `NVDA` ticker — "Mock NVDA Stock Token",
+"NVIDIA (Testnet - No Real Value)", two different "Tokenized NVDA", "NVDA Test Stock", and more.
+**Every one of them is unverified and none is a proxy over the official `Stock` implementation.**
+They are anonymous third-party mocks. Treating any of them as NVDA would be exactly the mistake
+Robinhood's docs warn about: a matching ticker at a different address is not a Stock Token.
+
+Robinhood's asset registry (`https://api.robinhood.com/rhj/assets`) lists **194 deployments, all
+on chain 4663**, and no testnet addresses at all — so it cannot be used to bless a testnet asset.
+
+**Conclusion: no reserve leg is deployed on testnet, and none should be.** The testnet factory's
+`supportsNvdaReserve()` returns `false`, so it is structurally incapable of creating an NVDA pad.
+
 ### Network details
 
 Verified 2026-09-12 against <https://docs.robinhood.com/chain/connecting>:
@@ -232,14 +266,30 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
 
 ## Roadmap
 
-1. **Milestone 1 (current):** wallet → create a real launchpad → launch a real token from a
-   second wallet → see both on the explorer. The browser flow is built and proven end to end
-   (`web/e2e/vertical-slice.mjs`, 37 checks). Public-testnet deployment is pending gas funds.
+1. **Milestone 1 — DONE, live on public Robinhood Chain testnet (chain 46630).**
+   See "Live deployment" below. Wallet A created an Open launchpad; wallet B — a different
+   wallet — launched a token through it and holds 100% of its supply.
 2. **Milestone 2:** a real trading path, so the fee has something to be charged on.
 3. **Milestone 3:** the constrained NVDA buyer module — swap into canonical NVDA only, enforce
    minimum output, deposit into `ReserveVault`, emit an explorer-verifiable trail. Mainnet-only,
    since canonical NVDA does not exist on testnet.
 4. **Then, and only then:** the general launchpad-building platform.
+
+## Live deployment — Robinhood Chain testnet (chain 46630)
+
+| What | Address / tx |
+|---|---|
+| `LaunchpadFactory` | [`0x26481da19fC7ac724DE7Dd52f98f7596f2aaBB97`](https://explorer.testnet.chain.robinhood.com/address/0x26481da19fC7ac724DE7Dd52f98f7596f2aaBB97) |
+| Factory deploy tx | [`0x259edeba…96c251`](https://explorer.testnet.chain.robinhood.com/tx/0x259edebafb8ba50628bb5ba13113435379337a969f8ec154987103747096c251) |
+| Launchpad "Foundry Genesis" (Open) | [`0x1d8731DeE6263C52875247446cb25A8306aBD36f`](https://explorer.testnet.chain.robinhood.com/address/0x1d8731DeE6263C52875247446cb25A8306aBD36f) |
+| Launchpad creation tx | [`0x7dad447a…de7901`](https://explorer.testnet.chain.robinhood.com/tx/0x7dad447afe92b14c8b0c2b66295ccd5668d52b30820b836c4ed3c14716de7901) |
+| Token "Genesis Coin" ($GEN) | [`0xC988361051F8a233c0eC918b37c7D92c8f86a68e`](https://explorer.testnet.chain.robinhood.com/address/0xC988361051F8a233c0eC918b37c7D92c8f86a68e) |
+| Token launch tx (by wallet B) | [`0x3b981df4…157c9e`](https://explorer.testnet.chain.robinhood.com/tx/0x3b981df48f3e07725dcbc7cdcd538e2cdee53d945ab80b983b316594d6157c9e) |
+
+Pad owner (wallet A) `0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461`; token creator (wallet B)
+`0x957687fFBd517D52f7825CBdfcf53C6b456d8efa`. Read back from the public RPC: the pad's
+`launchPolicy()` is `1` (Open), `canLaunch()` is true for arbitrary addresses, wallet B holds the
+entire 1,000,000,000 $GEN supply and **wallet A holds zero of it**.
 
 ## Layout
 
