@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foundry — Launchpad factory (local demo)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="noise"></div>
+
+  <!-- Always visible. This app has no wallet and no chain connection; nothing it shows is real. -->
+  <div class="demo-banner" role="status">
+    <strong>Local demo.</strong> No wallet, no chain, no real tokens. Every figure is simulated and
+    stored in your browser. Nothing here buys NVDA.
+  </div>
+
+  <header class="nav shell">
+    <button class="brand" data-route="home"><span class="brand-mark">F</span><span>FOUNDRY</span></button>
+    <nav>
+      <button data-route="explore">Explore</button>
+      <button data-route="create" class="nav-cta">Create a pad</button>
+    </nav>
+  </header>
+
+  <main id="app"></main>
+
+  <footer class="shell footer">
+    <div><span class="brand-mark small">F</span> Foundry Alpha — browser demo</div>
+    <div class="muted">
+      Not connected to Robinhood Chain • build 0.1
+      <button id="resetDemo" class="link-btn" type="button">Reset demo data</button>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

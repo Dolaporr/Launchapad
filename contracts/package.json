@@ -1,0 +1,21 @@
+{
+  "name": "launchpad-factory-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Permissionless launchpad factory contracts for Robinhood Chain (alpha).",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "clean": "hardhat clean",
+    "deploy:testnet": "hardhat run scripts/deploy.cjs --network robinhoodTestnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.cjs --network robinhood",
+    "pad:testnet": "hardhat run scripts/createLaunchpad.cjs --network robinhoodTestnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.26.3"
+  }
+}

@@ -1,0 +1,74 @@
+# ---------------------------------------------------------------------------
+# Secrets. Nothing in these patterns may ever reach the repository.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.keystore
+secrets.json
+mnemonic.txt
+privatekey*
+**/deployer-key*
+
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+.pnpm-store/
+
+# ---------------------------------------------------------------------------
+# Hardhat / Solidity build output
+# ---------------------------------------------------------------------------
+artifacts/
+cache/
+cache_hardhat/
+typechain/
+typechain-types/
+coverage/
+coverage.json
+.coverage_artifacts/
+.coverage_cache/
+.coverage_contracts/
+gas-report.txt
+
+# Deployment records contain live addresses. Commit them deliberately, not by accident.
+deployments/
+
+# ---------------------------------------------------------------------------
+# Foundry (if it is ever added alongside Hardhat)
+# ---------------------------------------------------------------------------
+out/
+broadcast/
+lib/forge-std/
+
+# ---------------------------------------------------------------------------
+# Logs and local tooling
+# ---------------------------------------------------------------------------
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.eslintcache
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Local scratch
+# ---------------------------------------------------------------------------
+tmp/
+.tmp/
+*.local
