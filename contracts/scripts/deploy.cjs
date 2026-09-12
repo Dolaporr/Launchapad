@@ -119,13 +119,27 @@ async function main() {
     throw new Error('No signer available. Set DEPLOYER_PRIVATE_KEY in contracts/.env.');
   }
 
-  const nvdaAddress = ethers.getAddress(required('NVDA_ADDRESS'));
+  // SKIP_VAULT=1 deploys the launchpad factory alone, with no reserve leg at all.
+  // This is the correct shape for Robinhood Chain testnet: canonical NVDA does not exist
+  // there, so a ReserveVault would have nothing real to hold and an NVDA-preset launchpad
+  // could not do what its name claims. With no reserve receiver the factory itself refuses
+  // to create NVDA pads (`supportsNvdaReserve()` returns false) — the honesty boundary is
+  // enforced on chain rather than only in the UI.
+  const skipVault = process.env.SKIP_VAULT === '1';
+
   const protocolTreasury = ethers.getAddress(required('PROTOCOL_TREASURY'));
-  const reserveReceiver = ethers.getAddress(required('RESERVE_RECEIVER'));
+  const nvdaAddress = skipVault ? null : ethers.getAddress(required('NVDA_ADDRESS'));
+  const reserveReceiver = skipVault
+    ? ethers.ZeroAddress
+    : ethers.getAddress(required('RESERVE_RECEIVER'));
   const vaultOwner = ethers.getAddress(process.env.VAULT_OWNER || deployer.address);
 
   let registryEntry = null;
-  if (process.env.SKIP_NVDA_VERIFY === '1') {
+  if (skipVault) {
+    console.log('\nSKIP_VAULT=1 — deploying the launchpad factory only.');
+    console.log('No ReserveVault, no reserve receiver, and NVDA-preset launchpads are');
+    console.log('impossible on this deployment by construction.\n');
+  } else if (process.env.SKIP_NVDA_VERIFY === '1') {
     console.warn(
       '\n!! SKIP_NVDA_VERIFY=1 — the reserve asset was NOT verified against the Robinhood registry.',
     );
@@ -135,17 +149,20 @@ async function main() {
     console.log(`Verified reserve asset against ${REGISTRY_URL}:`, registryEntry);
   }
 
-  // Pre-flight: a ReserveVault must never be the native-fee sink. It rejects native currency by
-  // design, so pointing fees at one made every NVDA-preset route revert.
-  await assertNotAReserveVault(reserveReceiver);
+  let vaultAddress = null;
+  if (!skipVault) {
+    // Pre-flight: a ReserveVault must never be the native-fee sink. It rejects native currency
+    // by design, so pointing fees at one made every NVDA-preset route revert.
+    await assertNotAReserveVault(reserveReceiver);
 
-  const vault = await (await ethers.getContractFactory('ReserveVault'))
-    .deploy(vaultOwner, nvdaAddress);
-  await vault.waitForDeployment();
-  const vaultAddress = await vault.getAddress();
+    const vault = await (await ethers.getContractFactory('ReserveVault'))
+      .deploy(vaultOwner, nvdaAddress);
+    await vault.waitForDeployment();
+    vaultAddress = await vault.getAddress();
 
-  if (reserveReceiver.toLowerCase() === vaultAddress.toLowerCase()) {
-    throw new Error(RESERVE_RECEIVER_ERROR);
+    if (reserveReceiver.toLowerCase() === vaultAddress.toLowerCase()) {
+      throw new Error(RESERVE_RECEIVER_ERROR);
+    }
   }
 
   const factory = await (await ethers.getContractFactory('LaunchpadFactory'))
@@ -167,9 +184,14 @@ async function main() {
       reserveTokenRegistryEntry: registryEntry,
       protocolTreasury,
       reserveReceiver,
-      vaultOwner,
+      vaultOwner: skipVault ? null : vaultOwner,
+      supportsNvdaReserve: await factory.supportsNvdaReserve(),
     },
-    notes: [
+    notes: skipVault ? [
+      'Factory only: no ReserveVault and no reserve receiver were deployed.',
+      'supportsNvdaReserve() is false, so this factory CANNOT create NVDA-preset launchpads.',
+      'This deployment does not buy, hold, or represent NVDA in any form.',
+    ] : [
       'This deployment does NOT buy NVDA. FeeRouter only accounts for the reserve leg.',
       'RESERVE_RECEIVER is not the vault and is not yet a constrained buyer module.',
       'The vault proves custody of whatever reserveToken was set to, nothing more.',

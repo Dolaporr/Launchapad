@@ -140,8 +140,20 @@ The deploy script deliberately refuses to do the wrong thing:
 - **Refuses to wire `ReserveVault` as `RESERVE_RECEIVER`.** The vault holds the reserve ERC-20 and
   rejects native currency by design; pointing fees at it made every NVDA-preset route revert.
 
-Because there is no canonical NVDA on testnet, a testnet run means deploying a mock reserve token
-and passing `SKIP_NVDA_VERIFY=1`. **A mock must never be described as NVDA anywhere in the product.**
+### Testnet deploys the factory only
+
+Because canonical NVDA does not exist on testnet, the testnet deployment uses `SKIP_VAULT=1`:
+
+```bash
+SKIP_VAULT=1 PROTOCOL_TREASURY=0x… npm run deploy:testnet
+```
+
+That deploys the `LaunchpadFactory` alone — no `ReserveVault`, no reserve receiver. The factory's
+`supportsNvdaReserve()` then returns **false**, so it is *incapable* of creating an NVDA-preset
+launchpad. The honesty boundary is enforced by the contract, not just by the UI copy.
+
+If you do want a reserve leg on a test network, you must deploy a clearly-labelled mock and pass
+`SKIP_NVDA_VERIFY=1`. **A mock must never be described as NVDA anywhere in the product.**
 
 ### Network details
 
