@@ -19,7 +19,14 @@ module.exports = {
   },
   networks: {
     hardhat: {
-      chainId: 31337,
+      // Overridable so the browser end-to-end test can run a local node that reports the
+      // Robinhood testnet chain id, exercising the app's real network-detection path.
+      // This changes nothing about a deployment: it only affects `npx hardhat node`/tests.
+      chainId: Number(process.env.HARDHAT_CHAIN_ID || 31337),
+    },
+    localhost: {
+      url: 'http://127.0.0.1:8545',
+      chainId: Number(process.env.HARDHAT_CHAIN_ID || 31337),
     },
     robinhoodTestnet: {
       url: process.env.RH_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com',

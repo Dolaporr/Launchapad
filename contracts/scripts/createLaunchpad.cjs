@@ -8,6 +8,8 @@
  *
  * Optional: TOKEN_NAME, TOKEN_SYMBOL, TOKEN_SUPPLY (whole tokens) to also launch a token.
  * Set PAD_PRESET=nvda for the NVDA Reserve preset (which accounts for, but does not buy, NVDA).
+ * Set PAD_POLICY=open so any wallet can launch through the pad (supply goes to whoever launches);
+ * PAD_POLICY=owner_only (the default) restricts launching to the pad owner. Immutable once set.
  */
 const hre = require('hardhat');
 require('dotenv').config();
@@ -18,6 +20,7 @@ const EXPLORERS = {
 };
 
 const PRESETS = { standard: 0, nvda: 1 };
+const POLICIES = { open: 1, owner_only: 0, owneronly: 0 };
 
 function explorerLink(chainId, kind, value) {
   const base = EXPLORERS[Number(chainId)];
@@ -40,6 +43,12 @@ async function main() {
   }
   const preset = PRESETS[presetKey];
 
+  const policyKey = (process.env.PAD_POLICY || 'owner_only').toLowerCase();
+  if (!(policyKey in POLICIES)) {
+    throw new Error(`PAD_POLICY must be one of: open, owner_only`);
+  }
+  const policy = POLICIES[policyKey];
+
   const padName = process.env.PAD_NAME || 'My Launchpad';
   const metadataURI = process.env.PAD_METADATA_URI || '';
 
@@ -52,8 +61,8 @@ async function main() {
     throw new Error('This factory was deployed without a reserve receiver; it cannot create NVDA pads.');
   }
 
-  console.log(`Creating launchpad "${padName}" (${presetKey}) as ${signer.address} ...`);
-  const createTx = await factory.createLaunchpad(padName, metadataURI, preset);
+  console.log(`Creating launchpad "${padName}" (preset=${presetKey}, policy=${policyKey}) as ${signer.address} ...`);
+  const createTx = await factory.createLaunchpad(padName, metadataURI, preset, policy);
   const createReceipt = await createTx.wait();
 
   const created = createReceipt.logs
@@ -75,6 +84,7 @@ async function main() {
     feeRouter: routerAddress,
     owner: created.args.owner,
     preset: presetKey,
+    launchPolicy: policyKey,
     createTx: createReceipt.hash,
     links: {
       launchpad: explorerLink(chainId, 'address', padAddress),

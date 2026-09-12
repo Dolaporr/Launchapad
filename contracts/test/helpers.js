@@ -1,6 +1,7 @@
 const { ethers } = require('hardhat');
 
 const PRESET = { STANDARD: 0, NVDA: 1 };
+const POLICY = { OWNER_ONLY: 0, OPEN: 1 };
 
 /// Fixture: a factory whose reserve receiver is a plain EOA (NOT a ReserveVault — the vault
 /// rejects native currency on purpose).
@@ -11,8 +12,8 @@ async function deployFactory() {
   return { factory, deployer, padOwner, protocol, reserveReceiver, stranger };
 }
 
-async function createPad(factory, signer, name, uri, preset) {
-  const tx = await factory.connect(signer).createLaunchpad(name, uri, preset);
+async function createPad(factory, signer, name, uri, preset, policy = POLICY.OWNER_ONLY) {
+  const tx = await factory.connect(signer).createLaunchpad(name, uri, preset, policy);
   const receipt = await tx.wait();
   const event = receipt.logs
     .map((log) => {
@@ -32,4 +33,4 @@ async function createPad(factory, signer, name, uri, preset) {
   };
 }
 
-module.exports = { PRESET, deployFactory, createPad };
+module.exports = { PRESET, POLICY, deployFactory, createPad };

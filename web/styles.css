@@ -14,3 +14,38 @@ button,input,textarea,select{font:inherit}.noise{position:fixed;inset:0;opacity:
 .link-btn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;padding:0;margin-left:14px;font-size:13px}
 .link-btn:hover{color:var(--text)}
 @media(max-width:520px){.footer{height:auto;flex-direction:column;gap:8px;padding:18px 0;text-align:center}}
+
+/* --- Live (on-chain) mode ------------------------------------------------ */
+.demo-banner.live{background:#0f1f2b;border-bottom-color:#1f4a63;color:#cfe6f5}
+.demo-banner.live strong{color:#5ec8ff}
+.banner-link{color:inherit;margin-left:10px;white-space:nowrap}
+.nav-link{color:#cbd2ce;padding:11px 16px;border-radius:12px;text-decoration:none;display:inline-block}
+.nav-link:hover{background:#151c17;color:#fff}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.small{font-size:12px}
+.live-shell{padding-bottom:70px}
+.wallet-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#0d1310;border:1px solid var(--line);border-radius:14px;padding:12px 16px;margin-bottom:18px;font-size:14px}
+.chain-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.chain-dot.good{background:var(--green);box-shadow:0 0 10px var(--green)}
+.chain-dot.bad{background:var(--danger);box-shadow:0 0 10px rgba(255,111,111,.6)}
+.btn.small{padding:8px 12px;font-size:13px;border-radius:10px}
+.tx-banner{border-radius:14px;padding:14px 16px;margin-bottom:18px;border:1px solid #2d382f;background:#141a16}
+.tx-banner.pending{border-color:#4a4326;background:#1c1a10}
+.tx-banner.success{border-color:#2f5a1f;background:#131f0f}
+.tx-banner.error{border-color:#5e2626;background:#1f1111}
+.tx-row{display:flex;align-items:flex-start;gap:12px}
+.tx-row>div{flex:1}
+.tx-icon{font-size:18px;line-height:1.2}
+.tx-banner.pending .tx-icon{color:#ffd34a;animation:spin 1.4s linear infinite;display:inline-block}
+.tx-banner.success .tx-icon{color:var(--green)}
+.tx-banner.error .tx-icon{color:var(--danger)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.tx-links{display:flex;gap:16px;margin-top:10px;padding-left:30px;font-size:13px}
+.tx-links a{color:var(--green)}
+.danger-notice{border-color:#5e2626;background:#1f1111;color:#ffc9c9}
+.live-card{cursor:pointer}
+.pill-open{border-color:var(--green);color:var(--green)}
+.policy-option{display:block;cursor:pointer}
+.policy-option input{margin-right:8px}
+.policy-option:has(input:checked){border-color:var(--green);box-shadow:inset 0 0 0 1px var(--green)}
+@media(max-width:520px){.wallet-bar{font-size:13px}.tx-links{padding-left:0}}

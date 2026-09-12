@@ -9,30 +9,33 @@
 <body>
   <div class="noise"></div>
 
-  <!-- Always visible. This app has no wallet and no chain connection; nothing it shows is real. -->
-  <div class="demo-banner" role="status">
-    <strong>Local demo.</strong> No wallet, no chain, no real tokens. Every figure is simulated and
-    stored in your browser. Nothing here buys NVDA.
+  <!-- Mode banner. Swapped by app.js/live.js so a user always knows which half they are in. -->
+  <div class="demo-banner" id="modeBanner" role="status">
+    <strong>Demo mode.</strong> No wallet, no chain, no real tokens. Every figure here is simulated
+    and stored in your browser. Nothing here buys NVDA.
+    <a href="#live" class="banner-link">Switch to live testnet →</a>
   </div>
 
   <header class="nav shell">
     <button class="brand" data-route="home"><span class="brand-mark">F</span><span>FOUNDRY</span></button>
     <nav>
-      <button data-route="explore">Explore</button>
-      <button data-route="create" class="nav-cta">Create a pad</button>
+      <button data-route="explore">Explore (demo)</button>
+      <a href="#live" class="nav-link" id="liveNav">Live testnet</a>
+      <button data-route="create" class="nav-cta">Create a pad (demo)</button>
     </nav>
   </header>
 
   <main id="app"></main>
 
   <footer class="shell footer">
-    <div><span class="brand-mark small">F</span> Foundry Alpha — browser demo</div>
+    <div><span class="brand-mark small">F</span> <span id="footerMode">Foundry Alpha — browser demo</span></div>
     <div class="muted">
-      Not connected to Robinhood Chain • build 0.1
+      <span id="footerChain">Not connected to Robinhood Chain</span> • build 0.1
       <button id="resetDemo" class="link-btn" type="button">Reset demo data</button>
     </div>
   </footer>
 
   <script src="app.js"></script>
+  <script type="module" src="live.js"></script>
 </body>
 </html>

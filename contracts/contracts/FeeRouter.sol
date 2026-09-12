@@ -39,9 +39,18 @@ contract FeeRouter {
 
     /// @notice Reserve leg of the NvdaReserve preset, in basis points of the routed fee.
     /// @dev 8000 bps of the mandatory 1.00% trade fee == 0.80% of trade notional.
+    ///      ALPHA DEFAULT — NOT FINAL PRODUCT POLICY.
     uint256 public constant NVDA_RESERVE_BPS = 8000;
     /// @dev Standard preset keeps exact sixths: 1/6 protocol, 5/6 owner. Applied to a 0.60%
     ///      upstream trade fee that is 0.50% owner / 0.10% protocol of trade notional.
+    ///
+    ///      *** ALPHA DEFAULT — NOT FINAL PRODUCT POLICY. ***
+    ///      The 0.60% / 0.50% / 0.10% Standard economics are a placeholder chosen to make the
+    ///      accounting legible in the alpha. They have not been validated against any market,
+    ///      have not been agreed as the product's real fee policy, and should be expected to
+    ///      change before anything ships to users. They are deliberately NOT configurable here:
+    ///      adding knobs before the policy is decided would bake in a wrong abstraction. When the
+    ///      real policy is chosen, it arrives as a new preset (or a new router), not as a setter.
     uint256 public constant STANDARD_PROTOCOL_DIVISOR = 6;
 
     /// @notice Native value credited to, and not yet withdrawn by, each beneficiary.

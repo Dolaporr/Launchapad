@@ -43,10 +43,28 @@ window.addEventListener('hashchange', render);
 
 function render(){
   const [r,v]=parseRoute();
+  // live.js owns every #live* route. The demo renderer must not touch them: mixing simulated
+  // state into the on-chain views is the one thing this split exists to prevent.
+  if(r.startsWith('live')){ setMode('live'); return; }
+  setMode('demo');
   if(r==='create') return renderCreate();
   if(r==='explore') return renderExplore();
   if(r==='pad') return renderPad(v);
   renderHome();
+}
+
+// Swaps the persistent banner so the current mode is never ambiguous.
+function setMode(mode){
+  const banner=document.getElementById('modeBanner'); if(!banner) return;
+  document.body.dataset.mode=mode;
+  banner.className='demo-banner'+(mode==='live'?' live':'');
+  const fm=document.getElementById('footerMode'), fc=document.getElementById('footerChain');
+  if(fm) fm.textContent = mode==='live' ? 'Foundry Alpha — live on testnet' : 'Foundry Alpha — browser demo';
+  if(fc) fc.textContent = mode==='live' ? 'Robinhood Chain testnet (46630)' : 'Not connected to Robinhood Chain';
+  const rd=document.getElementById('resetDemo'); if(rd) rd.hidden = mode==='live';
+  banner.innerHTML = mode==='live'
+    ? '<strong>Live mode — Robinhood Chain testnet.</strong> Everything shown is read from chain and every action is a real transaction. <a href="#" class="banner-link">Back to demo →</a>'
+    : '<strong>Demo mode.</strong> No wallet, no chain, no real tokens. Every figure here is simulated and stored in your browser. Nothing here buys NVDA. <a href="#live" class="banner-link">Switch to live testnet →</a>';
 }
 
 function renderHome(){
@@ -57,7 +75,7 @@ function renderHome(){
       <div class="eyebrow">Permissionless launchpad infrastructure</div>
       <h1>Launch the place where coins launch.</h1>
       <p>Create a branded token market in minutes. Pick the economy, launch tokens underneath it, and participate in the activity your ecosystem generates.</p>
-      <div class="actions"><button class="btn primary" data-route="create">Create your launchpad →</button><button class="btn ghost" data-route="explore">Explore pads</button></div>
+      <div class="actions"><a class="btn primary" href="#live">Launch on testnet →</a><button class="btn ghost" data-route="create">Try the demo</button></div>
     </div>
     <aside class="hero-card">
       <div class="metric-label">Simulated network activity</div><div class="big-metric">${money(totalVolume)}</div>
