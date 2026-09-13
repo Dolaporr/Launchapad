@@ -8,6 +8,10 @@
 # forgot the state it was pinned to. This script therefore starts the fork, deploys,
 # and runs immediately, rather than reusing a long-lived node.
 set -euo pipefail
+# Job control, so each background job below lands in its OWN process group and
+# can be killed as a tree. Without it every job shares this script's group, and
+# killing that group would kill the script too.
+set -m
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RPC="${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com}"
@@ -15,9 +19,24 @@ NODE_PORT="${NODE_PORT:-8545}"
 SERVER_PORT="${SERVER_PORT:-4173}"
 WORK="$(mktemp -d)"
 
+# `npx hardhat node` spawns through an npm wrapper, so killing the PID we hold
+# leaves the real node running and still holding the port. Killing the job's
+# process group takes the whole tree, which is what "stop the fork" has to mean.
+stop_tree() {
+  local pid="${1:-}"
+  [[ -z "$pid" ]] && return 0
+  local pgid
+  pgid="$(ps -o pgid= "$pid" 2>/dev/null | tr -d ' ')"
+  # Never signal our own group: that would kill this script and its caller.
+  if [[ -n "$pgid" && "$pgid" != "$$" ]]; then
+    kill -- "-$pgid" 2>/dev/null || true
+  else
+    kill "$pid" 2>/dev/null || true
+  fi
+}
 cleanup() {
-  [[ -n "${SERVER_PID:-}" ]] && kill "$SERVER_PID" 2>/dev/null || true
-  [[ -n "${NODE_PID:-}" ]] && kill "$NODE_PID" 2>/dev/null || true
+  stop_tree "${SERVER_PID:-}"
+  stop_tree "${NODE_PID:-}"
 }
 trap cleanup EXIT
 
