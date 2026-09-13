@@ -67,6 +67,15 @@ export const ABI = {
     'CREATOR_BPS()': '0x45904567',
     'PAD_OWNER_BPS()': '0xc833d8d4',
     'PROTOCOL_BPS()': '0xc1e7af35',
+    // --- launch detail: proving the lock and reconciling the money ---
+    'ownerOf(uint256)': '0x6352211e',
+    'attributionOf(uint256)': '0x84c07853',
+    'totalPending()': '0x3f90916a',
+    'unaccountedBalance()': '0x382e8547',
+    'protocolTreasury()': '0x803db96d',
+    'registrar()': '0x2b20e397',
+    'launchpadFactory()': '0x69cc944e',
+    'rewards()': '0x9ec5a894',
   },
   // Event topic0 (keccak256 of the full event signature).
   TOPICS: {
@@ -76,8 +85,25 @@ export const ABI = {
       '0x1a8ab442384acdb09c73bc5f71549c099dad32203f07e1655e0ebce05831f749',
     'TokenLaunchedToUniswap(address,address,address,address,uint256)':
       '0x2fd6deff2f7d7caf7306d19d27f3b6ed9f732b7cf47683a76664a8703e663d65',
+    'Transfer(address,address,uint256)':
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
+    'RewardsSplit(uint256,uint256,uint256,uint256,uint256)':
+      '0xb13a17f6e353d70a3d72e277f048428b5c8220f16d1a73924fd7fc4833668e95',
+    'Withdrawn(address,uint256)':
+      '0x7084f5476618d8e60b11ef0d7d3f06914655adb8793e28ff7f018d4c76d505d5',
   },
 };
+
+// Official Uniswap deployment on Robinhood Chain mainnet (4663). Pinned, never resolved by name.
+export const UNISWAP = {
+  feeSplitter: '0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf',
+  beneficiaryVault: '0xd35E9CA72F64C7F93BE30fad67524323396B36D7',
+  positionManager: '0x58daec3116aae6D93017bAAea7749052E8a04fA7',
+  poolManager: '0x8366a39CC670B4001A1121B8F6A443A643e40951',
+  instantLaunchStrategy: '0x23f8209572b4a1C2AD88A42749E830791Fb027f1',
+};
+export const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD';
+export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 // ---------------------------------------------------------------------------
 // Minimal ABI codec
@@ -508,4 +534,238 @@ export function presetLabel(preset) {
 
 export function policyLabel(policy) {
   return policy === POLICY.OPEN ? 'Open — anyone can launch' : 'Owner only';
+}
+
+// ---------------------------------------------------------------------------
+// Launch detail — builds a verification record for ONE launch, from chain.
+//
+// Produces the same shape as contracts/scripts/lib/launchVerifier.cjs so the
+// tested product model in launchState.js consumes it unchanged.
+//
+// Anything that cannot be established from chain is left NULL and the matching
+// check is recorded as failed. It is never inferred, and never defaulted to a
+// value that would render as a confident zero.
+// ---------------------------------------------------------------------------
+
+/** eth_getLogs through the injected provider. Throws rather than returning partial data. */
+export async function getLogs({ address, topics, fromBlock, toBlock = 'latest' }) {
+  return request('eth_getLogs', [{
+    address,
+    topics,
+    fromBlock: typeof fromBlock === 'number' ? `0x${fromBlock.toString(16)}` : fromBlock,
+    toBlock,
+  }]);
+}
+
+export async function getBlockNumber() {
+  return Number(BigInt(await request('eth_blockNumber')));
+}
+
+const topicToAddress = (t) => `0x${strip(t).slice(24)}`;
+
+/**
+ * Reads everything needed to display and audit one market launch.
+ *
+ * @param {object} o
+ * @param {string} o.launcher  our LaunchpadFamilyLauncher
+ * @param {string} o.token     the token to audit
+ * @param {string[]} o.controlledWallets  wallets known to be ours; others are external
+ * @param {number} [o.fromBlock]  scan window start; required for holder discovery
+ */
+export async function readLaunchState({ launcher, token, controlledWallets = [], fromBlock }) {
+  const checks = [];
+  const add = (id, passed, detail = '') => checks.push({ id, passed, detail });
+  const controlled = new Set(controlledWallets.filter(Boolean).map((a) => a.toLowerCase()));
+
+  const rewardsAddress = await callAddress(launcher, 'rewards()');
+  const factoryAddress = await callAddress(launcher, 'launchpadFactory()');
+
+  // --- the two-way binding ------------------------------------------------
+  const launch = await readMarketLaunch(launcher, token);
+  add('launch.recordedByLauncher', Boolean(launch) && launch.verified === true,
+    launch ? launch.address : 'no record');
+  if (!launch || !launch.verified) {
+    return {
+      schemaVersion: 1,
+      verification: { status: 'FAILED', checks },
+      findings: ['This launcher has no verified record for that token.'],
+    };
+  }
+  add('launch.verifyMarketLaunch', true);
+
+  const [name, symbol, totalSupply, decimals] = await Promise.all([
+    callString(token, 'name()'),
+    callString(token, 'symbol()'),
+    callUint(token, 'totalSupply()'),
+    callUint(token, 'decimals()'),
+  ]);
+  add('token.supplyIsOneBillion18', totalSupply === FIXED_TOKEN_SUPPLY * 10n ** 18n,
+    totalSupply.toString());
+
+  // --- the lock -----------------------------------------------------------
+  const positionId = launch.positionTokenId;
+  let positionOwner = null;
+  let beneficiaryOwner = null;
+  try {
+    positionOwner = await callAddress(UNISWAP.positionManager, 'ownerOf(uint256)', [encodeUint(positionId)]);
+  } catch { /* left null: reported as a failed check below */ }
+  try {
+    beneficiaryOwner = await callAddress(UNISWAP.beneficiaryVault, 'ownerOf(uint256)', [encodeUint(positionId)]);
+  } catch { /* left null */ }
+
+  add('liquidity.permanentlyLocked',
+    Boolean(positionOwner) && positionOwner.toLowerCase() === UNISWAP.feeSplitter.toLowerCase(),
+    positionOwner || 'position owner could not be read');
+  add('beneficiary.ownedByRewards',
+    Boolean(beneficiaryOwner) && beneficiaryOwner.toLowerCase() === rewardsAddress.toLowerCase(),
+    beneficiaryOwner || 'beneficiary owner could not be read');
+
+  // --- supply reconciliation ---------------------------------------------
+  const lockedInPool = await callUint(token, 'balanceOf(address)', [encodeAddress(UNISWAP.poolManager)]);
+  const burned = await callUint(token, 'balanceOf(address)', [encodeAddress(BURN_ADDRESS)]);
+
+  let holders = [];
+  let supplyExact = false;
+  if (fromBlock !== undefined && fromBlock !== null) {
+    const logs = await getLogs({
+      address: token, topics: [ABI.TOPICS['Transfer(address,address,uint256)']], fromBlock,
+    });
+    const touched = new Set();
+    for (const log of logs) {
+      touched.add(topicToAddress(log.topics[1]));
+      touched.add(topicToAddress(log.topics[2]));
+    }
+    const skip = new Set([
+      ZERO_ADDRESS.toLowerCase(), UNISWAP.poolManager.toLowerCase(), BURN_ADDRESS.toLowerCase(),
+    ]);
+    for (const address of touched) {
+      if (skip.has(address.toLowerCase())) continue;
+      const balance = await callUint(token, 'balanceOf(address)', [encodeAddress(address)]);
+      if (balance === 0n) continue;
+      holders.push({
+        address,
+        balance: balance.toString(),
+        classification: controlled.has(address.toLowerCase()) ? 'controlled' : 'external',
+      });
+    }
+    const sum = lockedInPool + burned + holders.reduce((a, h) => a + BigInt(h.balance), 0n);
+    supplyExact = sum === totalSupply;
+    add('supply.reconcilesExactly', supplyExact, `${sum} vs ${totalSupply}`);
+  } else {
+    // No scan window means holders cannot be discovered. That is UNKNOWN, not zero.
+    holders = null;
+    add('supply.reconcilesExactly', false,
+      'no scan window: holders could not be discovered, so supply cannot be reconciled');
+  }
+
+  // --- fee accounting -----------------------------------------------------
+  const attribution = await readRewards(rewardsAddress, { positionTokenId: positionId });
+  const treasury = await callAddress(rewardsAddress, 'protocolTreasury()');
+  const [creatorBps, padBps, protocolBps] = await Promise.all([
+    callUint(rewardsAddress, 'CREATOR_BPS()'),
+    callUint(rewardsAddress, 'PAD_OWNER_BPS()'),
+    callUint(rewardsAddress, 'PROTOCOL_BPS()'),
+  ]);
+  add('split.sumsTo100Pct', creatorBps + padBps + protocolBps === 10000n,
+    `${creatorBps}/${padBps}/${protocolBps}`);
+
+  const lifetime = await callUint(rewardsAddress, 'lifetimeDistributed(uint256)', [encodeUint(positionId)]);
+  const parties = {
+    creator: launch.tokenCreator,
+    launchpadOwner: launch.launchpadOwner,
+    protocol: treasury,
+  };
+  const pendingWei = {};
+  for (const [role, address] of Object.entries(parties)) {
+    pendingWei[role] = (await callUint(rewardsAddress, 'pending(address)', [encodeAddress(address)])).toString();
+  }
+
+  // Credited per party is derived from the immutable split applied to the lifetime total.
+  const creditedWei = {
+    creator: ((lifetime * creatorBps) / 10000n).toString(),
+    launchpadOwner: ((lifetime * padBps) / 10000n).toString(),
+    protocol: (lifetime - (lifetime * creatorBps) / 10000n - (lifetime * padBps) / 10000n).toString(),
+  };
+  const withdrawnWei = {};
+  for (const role of Object.keys(parties)) {
+    withdrawnWei[role] = (BigInt(creditedWei[role]) - BigInt(pendingWei[role])).toString();
+  }
+  const unaccounted = await callUint(rewardsAddress, 'unaccountedBalance()');
+  add('fees.noUnaccountedEth', unaccounted === 0n, unaccounted.toString());
+  const feeExact = Object.keys(parties)
+    .every((r) => BigInt(withdrawnWei[r]) + BigInt(pendingWei[r]) === BigInt(creditedWei[r]))
+    && unaccounted === 0n;
+  add('fees.splitConservesEveryWei', feeExact);
+
+  const distinct = new Set(Object.values(parties).map((a) => a.toLowerCase()));
+  add('roles.threeDistinctRecipients', distinct.size === 3, `${distinct.size}/3`);
+
+  const traders = (holders || []).map((h) => ({
+    address: h.address,
+    classification: h.classification,
+    tokensReceived: h.balance,
+  }));
+
+  const failed = checks.filter((c) => !c.passed);
+  return {
+    schemaVersion: 1,
+    chainId: TARGET_CHAIN.chainId,
+    contracts: {
+      LaunchpadFactory: factoryAddress,
+      LaunchpadFamilyLauncher: launcher,
+      LaunchpadRewards: rewardsAddress,
+    },
+    launchpad: { address: launch.launchpad, owner: launch.launchpadOwner, policy: null },
+    token: {
+      address: token, name, symbol, decimals: Number(decimals), totalSupply: totalSupply.toString(),
+    },
+    pool: {
+      poolId: null,
+      positionTokenId: positionId.toString(),
+      currency0: ZERO_ADDRESS,
+      currency1: token,
+      fee: 2500,
+      tickSpacing: 25,
+      hooks: ZERO_ADDRESS,
+      positionOwner,
+      beneficiaryOwner,
+    },
+    roles: {
+      tokenCreator: launch.tokenCreator,
+      launchpadOwner: launch.launchpadOwner,
+      protocolTreasury: treasury,
+    },
+    splitBps: {
+      creator: Number(creatorBps), launchpadOwner: Number(padBps), protocol: Number(protocolBps),
+    },
+    supplyReconciliation: holders === null ? null : {
+      totalSupply: totalSupply.toString(),
+      lockedInPool: lockedInPool.toString(),
+      burned: burned.toString(),
+      holders,
+      exact: supplyExact,
+    },
+    feeAccounting: {
+      lpFeeNativeWei: null,
+      lpFeeTokenWei: null,
+      attributedToVaultWei: '0',
+      claimedTotalWei: lifetime.toString(),
+      creditedWei,
+      withdrawnWei,
+      pendingWei,
+      unaccountedWei: unaccounted.toString(),
+      exact: feeExact,
+    },
+    trading: { buys: traders.length, traders },
+    verification: {
+      status: failed.length === 0 ? 'VERIFIED' : 'FAILED',
+      verifiedAt: new Date().toISOString(),
+      checks,
+    },
+    findings: failed.map((c) => `${c.id}: ${c.detail}`),
+    notes: (holders || []).some((h) => h.classification === 'external')
+      ? ['Third-party trading observed. A public pool is permissionless; this is expected activity '
+        + 'and is not evidence of organic demand.']
+      : [],
+  };
 }

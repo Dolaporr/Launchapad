@@ -9,6 +9,8 @@
 
 import * as chain from './chain.js';
 import { resolveFactoryAddress, resolveLauncherAddress, resolveRewardsAddress, DEPLOYMENT } from './config.js';
+import { buildLaunchState } from './launchState.js';
+import { renderLaunchDetail } from './launchDetail.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = () => document.getElementById('app');
@@ -16,6 +18,10 @@ const app = () => document.getElementById('app');
 const state = {
   account: null,
   chainId: null,
+  // The launch currently open in the detail view, as a verification record plus its display model.
+  launchRecord: null,
+  launchState: null,
+  launchError: null,
   pads: [],
   pad: null,
   tokens: [],
@@ -196,7 +202,8 @@ async function loadRoute() {
 
   state.busy = true; render();
   try {
-    if (route === 'live-pad' && value) await loadPad(value);
+    if (route === 'live-launch' && value) await loadLaunchDetail(value);
+    else if (route === 'live-pad' && value) await loadPad(value);
     else if (route === 'live') await loadPads();
   } finally {
     state.busy = false;
@@ -642,7 +649,8 @@ function marketRow(launch) {
     <td class="mono small">${esc(chain.shortAddress(launch.tokenCreator))}${isCreator ? ' <strong>(you)</strong>' : ''}</td>
     <td class="mono small">${esc(chain.shortAddress(launch.launchpadOwner))}${isPadOwner ? ' <strong>(you)</strong>' : ''}</td>
     <td class="small">50 / 30 / 20<div class="muted">split so far: ${esc(chain.formatUnits(launch.lifetime))} ETH</div></td>
-    <td><button class="btn ghost small" data-collect="${launch.positionTokenId}"
+    <td><a class="btn ghost small" href="#live-launch=${esc(launch.address)}">View</a>
+      <button class="btn ghost small" data-collect="${launch.positionTokenId}"
       ${!state.account ? 'disabled' : ''}>Collect</button></td>
   </tr>`;
 }
@@ -740,6 +748,7 @@ function render() {
   if (!isLiveRoute()) return;
   const [route] = parseRoute();
   if (route === 'live-create') renderCreate();
+  else if (route === 'live-launch') { app().innerHTML = launchDetailView(); }
   else if (route === 'live-pad') renderPad();
   else renderList();
   bind();
@@ -747,6 +756,84 @@ function render() {
 
 // ---------------------------------------------------------------------------
 // Boot
+// ---------------------------------------------------------------------------
+// Launch detail — Token / Pool / Locked liquidity / Trading / Fees / Revenue split
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads ONE launch from chain and builds its display model.
+ *
+ * Everything rendered comes from `chain.readLaunchState`. If the read fails, the view says so
+ * rather than rendering a page of zeroes: an unverifiable launch must never look like a healthy
+ * one with nothing in it.
+ */
+async function loadLaunchDetail(token) {
+  state.launchRecord = null;
+  state.launchState = null;
+  state.launchError = null;
+
+  const launcher = resolveLauncherAddress();
+  if (!launcher) {
+    state.launchError = 'No market launcher is configured, so this launch cannot be verified here.';
+    return;
+  }
+
+  try {
+    // Holder discovery needs a scan window. The launch event gives us one; without it we say so
+    // rather than silently reporting an unreconciled supply as if it balanced.
+    let fromBlock;
+    try {
+      const logs = await chain.getLogs({
+        address: launcher,
+        topics: [
+          chain.ABI.TOPICS['TokenLaunchedToUniswap(address,address,address,address,uint256)'],
+          `0x${'0'.repeat(24)}${token.replace(/^0x/, '')}`.toLowerCase(),
+        ],
+        fromBlock: 0,
+      });
+      if (logs.length) fromBlock = Number(BigInt(logs[0].blockNumber));
+    } catch { /* leave undefined; the record will mark supply as unreconcilable */ }
+
+    const controlled = [state.account].filter(Boolean);
+    const record = await chain.readLaunchState({ launcher, token, controlledWallets: controlled, fromBlock });
+    state.launchRecord = record;
+    state.launchState = buildLaunchState(record);
+  } catch (e) {
+    state.launchError = chain.describeError(e);
+  }
+}
+
+function launchDetailView() {
+  const back = state.pad
+    ? `#live-pad=${state.pad.address}`
+    : '#live';
+
+  if (state.launchError) {
+    return `<div class="live-shell">
+      <a class="muted small" href="${esc(back)}">← back</a>
+      <div class="notice bad" style="margin-top:12px"><strong>Could not verify this launch.</strong>
+        ${esc(state.launchError)}</div></div>`;
+  }
+  if (!state.launchState) {
+    return `<div class="live-shell"><a class="muted small" href="${esc(back)}">← back</a>
+      <div class="empty">${state.busy ? 'Verifying on chain…' : 'Nothing loaded.'}</div></div>`;
+  }
+
+  const s = state.launchState;
+  const explorerBase = chain.CHAINS && state.chainId
+    ? (chain.explorerUrl('address', '0x0', state.chainId) || '').replace(/\/address\/0x0$/, '')
+    : '';
+
+  return `<div class="live-shell">
+    <a class="muted small" href="${esc(back)}">← back</a>
+    <div class="toolbar" style="margin-top:10px">
+      <div><div class="eyebrow green">Launch</div>
+        <h2 style="margin:6px 0">$${esc(s.token.symbol || '')} — full lifecycle</h2></div>
+    </div>
+    ${renderLaunchDetail(s, { explorerBase })}
+  </div>`;
+}
+
 // ---------------------------------------------------------------------------
 
 async function boot() {
@@ -771,6 +858,6 @@ if (chain.hasWallet()) {
 
 // Exposed for the end-to-end browser test, which drives the real UI and then asserts on the
 // same chain-read state the UI rendered from.
-window.__live = { state, chain, boot, factoryAddress, DEPLOYMENT };
+window.__live = { state, chain, boot, factoryAddress, DEPLOYMENT, buildLaunchState, renderLaunchDetail };
 
 if (isLiveRoute()) boot();

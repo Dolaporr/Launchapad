@@ -19,6 +19,9 @@ describeFork('FORK: deterministic launch verification', function () {
   let deployer, padOwner, creator, treasury, ourBuyer, stranger, secondStranger;
   let factory, launcher, rewards, router, pad, token, positionTokenId;
   let controlledWallets;
+  // A fork starts at a real mainnet height (tens of millions of blocks), so scanning from 0 would
+  // chunk-read the entire chain. Everything this test cares about happens after the fork point.
+  let startBlock;
 
   const poolKeyFor = (t) => ({
     currency0: ethers.ZeroAddress, currency1: t, fee: 2500, tickSpacing: 25, hooks: ethers.ZeroAddress,
@@ -26,6 +29,7 @@ describeFork('FORK: deterministic launch verification', function () {
 
   before(async () => {
     await network.provider.send('evm_mine');
+    startBlock = await ethers.provider.getBlockNumber();
     [deployer, padOwner, creator, treasury, ourBuyer, stranger, secondStranger] = await ethers.getSigners();
 
     factory = await (await ethers.getContractFactory('LaunchpadFactory'))
@@ -64,7 +68,7 @@ describeFork('FORK: deterministic launch verification', function () {
     token,
     launcher: launcher.target ?? launcher.address,
     controlledWallets,
-    fromBlock: 0,
+    fromBlock: startBlock,
   });
 
   describe('a launch with no trading at all', () => {
@@ -226,7 +230,7 @@ describeFork('FORK: deterministic launch verification', function () {
         provider: ethers.provider,
         token: await other.getAddress(),
         launcher: launcher.target ?? launcher.address,
-        fromBlock: 0,
+        fromBlock: startBlock,
       });
       expect(r.verification.status).to.equal('FAILED');
       expect(r.verification.checks.find((c) => c.id === 'launch.recordedByLauncher').passed)
@@ -235,7 +239,7 @@ describeFork('FORK: deterministic launch verification', function () {
 
     it('an address with no code as the launcher fails instead of throwing', async () => {
       const r = await verifyLaunch({
-        provider: ethers.provider, token, launcher: stranger.address, fromBlock: 0,
+        provider: ethers.provider, token, launcher: stranger.address, fromBlock: startBlock,
       });
       expect(r.verification.status).to.equal('FAILED');
       expect(r.verification.checks.find((c) => c.id === 'launcher.hasCode').passed).to.equal(false);
