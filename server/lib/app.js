@@ -24,6 +24,8 @@ import { Registry, LISTING_ACTIVE, LISTING_DELISTED } from './registry.js';
 import { BrandingStore, ACCENT_COLORS, validateBranding } from './branding.js';
 import { ChainReader } from './chain.js';
 import { slugFromHost, validateSlug, metadataUriFor, slugFromMetadataUri } from './slug.js';
+import { padMetrics, rankPads } from './metrics.js';
+import { buildExport, buildTar, githubStatus } from './export.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -52,6 +54,7 @@ export class App {
     origin = 'https://launchpad.family',
     adminToken = null,
     contracts = {},
+    indexer = null,
   }) {
     this.registry = registry ?? new Registry(':memory:');
     this.branding = branding ?? new BrandingStore(':memory:');
@@ -69,6 +72,7 @@ export class App {
       rewards: contracts.rewards ?? null,
     };
     /** Single-use signing challenges: nonce -> {address, action, expiresAt}. */
+    this.indexer = indexer;
     this.nonces = new Map();
   }
 
@@ -170,6 +174,28 @@ export class App {
     return { ok: true, pad };
   }
 
+  /**
+   * Metrics for a pad, computed from INDEXED CHAIN DATA only.
+   * Returns null when there is no indexer, so the UI shows "unavailable" rather
+   * than an authoritative-looking set of zeroes.
+   */
+  async metricsFor(padAddress, { padOwner } = {}) {
+    if (!this.indexer) return null;
+    try {
+      const launches = await this.indexer.indexPad(padAddress);
+      return padMetrics(launches, {
+        padOwner,
+        protocolTreasury: this.contracts.protocolTreasury ?? null,
+        protocolAddresses: [
+          this.contracts.factory, this.contracts.launcher, this.contracts.rewards,
+        ].filter(Boolean),
+        uniswapAddresses: this.contracts.uniswap ?? [],
+      });
+    } catch {
+      return null;
+    }
+  }
+
   /** Public view of a pad: registry + branding + the onchain facts, clearly separated. */
   async padView(slug, now = Date.now()) {
     const row = this.registry.resolve(slug, now);
@@ -181,7 +207,17 @@ export class App {
     }
 
     const branding = this.branding.get(row.slug, { fallbackName: onchain?.name ?? '' });
+    const metrics = await this.metricsFor(row.pad_address, { padOwner: row.owner_address });
+
+    // A pad becomes discoverable on its first VERIFIED launch, which only the
+    // indexer can establish. The registry records it so abandonment can lift.
+    if (metrics?.totalLaunches > 0 && !row.first_launch_at) {
+      const at = this.indexer?.firstLaunchAt(row.pad_address);
+      if (at) this.registry.recordFirstLaunch(row.slug, at);
+    }
+
     return {
+      metrics,
       slug: row.slug,
       padAddress: row.pad_address,
       owner: row.owner_address,
@@ -271,6 +307,19 @@ export class App {
         hostname: availability.slug ? `${availability.slug}.${this.apex}` : null,
         metadataURI: availability.slug ? metadataUriFor(availability.slug, this.origin) : null,
       });
+    }
+
+    if (method === 'GET' && route === '/leaderboard') {
+      const rows = this.registry.discoverable(this.chainId);
+      const pads = (await Promise.all(rows.map((row) => this.padView(row.slug)))).filter(Boolean);
+      return this.json(res, 200, { pads: rankPads(pads) });
+    }
+
+    const metricsMatch = route.match(/^\/pads\/([^/]+)\/metrics$/);
+    if (method === 'GET' && metricsMatch) {
+      const view = await this.padView(metricsMatch[1]);
+      if (!view) return this.json(res, 404, { error: 'not_found' });
+      return this.json(res, 200, { slug: view.slug, metrics: view.metrics });
     }
 
     if (method === 'GET' && route === '/pads') {
@@ -388,6 +437,43 @@ export class App {
       const saved = this.branding.put(row.slug, body.branding ?? {});
       if (!saved.ok) return this.json(res, 400, saved);
       return this.json(res, 200, { ok: true, branding: this.branding.get(row.slug) });
+    }
+
+    // --- export -------------------------------------------------------------
+    if (method === 'GET' && route === '/export/status') {
+      return this.json(res, 200, { github: githubStatus() });
+    }
+
+    const exportMatch = route.match(/^\/export\/([^/]+)\/(preview|download)$/);
+    if (method === 'GET' && exportMatch) {
+      const view = await this.padView(exportMatch[1]);
+      if (!view) return this.json(res, 404, { error: 'not_found' });
+      let files;
+      try {
+        files = buildExport({
+          pad: view,
+          chainId: this.chainId,
+          contracts: this.contracts,
+          apex: this.apex,
+          accentColors: ACCENT_COLORS,
+        });
+      } catch (error) {
+        return this.json(res, 500, { error: 'export_refused', message: error.message });
+      }
+      if (exportMatch[2] === 'preview') {
+        return this.json(res, 200, {
+          slug: view.slug,
+          files: files.map((f) => ({ path: f.path, bytes: f.content.length })),
+          github: githubStatus(),
+        });
+      }
+      const tar = buildTar(files);
+      res.writeHead(200, {
+        'content-type': 'application/x-tar',
+        'content-length': tar.length,
+        'content-disposition': `attachment; filename="${view.slug}-launchpad.tar"`,
+      });
+      return res.end(tar);
     }
 
     // --- admin --------------------------------------------------------------
