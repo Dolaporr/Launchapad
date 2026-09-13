@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------------------
+# Launchpad.family — production hosting (Phase 1).
+#
+# SINGLE MACHINE, BY CONSTRUCTION. The pad registry and branding store are
+# SQLite on one Fly Volume. A volume attaches to exactly one Machine, so a
+# second Machine would mean a second, divergent registry. Everything below that
+# looks like a scaling knob is deliberately pinned off.
+#
+# Deploy with:  fly deploy --ha=false
+# Verify with:  fly machines list && fly volumes list   (expect exactly 1 of each)
+# ---------------------------------------------------------------------------
+
+app = "launchpad-family"
+primary_region = "jnb"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# ---------------------------------------------------------------------------
+# Configuration. Nothing secret lives here.
+#
+# This server holds no keys and signs nothing: every state-changing action is
+# signed in the user's own browser wallet and verified against the chain. The
+# only secret it can hold is ADMIN_TOKEN, which is set with `fly secrets set`
+# and never appears in this file.
+# ---------------------------------------------------------------------------
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+  APEX = "launchpad.family"
+
+  # ORIGIN is baked into each pad's metadataURI, which is IMMUTABLE on chain.
+  # It defaults to https://$APEX, but it is set explicitly here because a wrong
+  # value cannot be corrected after a pad is created.
+  ORIGIN = "https://launchpad.family"
+
+  CHAIN_ID = "4663"
+  RPC_URL = "https://rpc.mainnet.chain.robinhood.com"
+
+  # The volume mount. Not the container filesystem: anything written outside
+  # /data is lost on every restart and redeploy.
+  DB_PATH = "/data/pads.db"
+
+  # Robinhood Chain mainnet, from the frozen canary baseline.
+  FACTORY = "0xB314cd4731c4F3B4025FCcF5B8E0a3072E8BCbde"
+  LAUNCHER = "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6"
+  REWARDS = "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+  PROTOCOL_TREASURY = "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef"
+
+# ---------------------------------------------------------------------------
+# Persistent storage.
+#
+# `source` names an EXISTING volume. Fly refuses to add a Machine to a process
+# group with mounts unless an unattached volume is available, so keeping exactly
+# one volume is itself the guard against a second Machine appearing.
+# Never create a spare volume; never run `fly scale count`.
+# ---------------------------------------------------------------------------
+[mounts]
+  source = "pads_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # All three pinned so the app never scales itself. auto_stop would also break
+  # the product: a stopped Machine serves nothing, and there is no second one.
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  # Returns {ok, apex, chainId} only — no configuration, no secrets.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpus = 1
+  cpu_kind = "shared"

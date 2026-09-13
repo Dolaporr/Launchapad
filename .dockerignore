@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Only server/ and web/ are copied into the image, so this file is a second
+# line of defence rather than the primary one. It matters most for the two
+# risks a COPY alone does not address: build context size, and the chance of
+# sweeping a key or a local database into an image.
+# ---------------------------------------------------------------------------
+
+# Secrets. Nothing matching these may ever enter an image.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.keystore
+secrets.json
+mnemonic.txt
+privatekey*
+**/deployer-key*
+
+# Local databases. A developer's pads.db must never ship and then be mounted
+# over — or worse, be served from the image when the volume fails to mount.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# The contracts toolchain is build- and test-time only. Its node_modules is by
+# far the largest thing in the repository and none of it is used at runtime.
+contracts/
+
+# Test and proof artefacts.
+server/test/
+web/e2e/
+*.png
+
+# Repository and tooling.
+.git/
+.github/
+.gitignore
+node_modules/
+npm-debug.log*
+*.md
+
+# Deployment files themselves do not belong inside the image.
+Dockerfile
+.dockerignore
+fly.toml
