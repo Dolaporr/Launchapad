@@ -9,7 +9,7 @@
  *   npx hardhat run scripts/canaryPreflight.cjs --network robinhood
  *
  * Optional:
- *   MAX_ETH_BUDGET=0.006  total spend ceiling; abort if the estimate exceeds it (default 0.006)
+ *   MAX_ETH_BUDGET=0.01   total spend ceiling; abort if the estimate exceeds it (default 0.01)
  *   CANARY_BUY_ETH=0.001  the size of the proving buy (default 0.001)
  *   BASELINE=path.json    compare dependency codehashes against a recorded baseline
  *   WRITE_BASELINE=1      write the observed codehashes to BASELINE instead of comparing
@@ -75,7 +75,7 @@ async function main() {
   const { ethers } = hre;
   const provider = ethers.provider;
 
-  const maxBudget = ethers.parseEther(process.env.MAX_ETH_BUDGET || '0.006');
+  const maxBudget = ethers.parseEther(process.env.MAX_ETH_BUDGET || '0.01');
   const buyAmount = ethers.parseEther(process.env.CANARY_BUY_ETH || '0.001');
 
   console.log('='.repeat(78));
@@ -238,15 +238,67 @@ async function main() {
       nonce === 0 ? 'never transacted on mainnet' : `nonce=${nonce} — this wallet has mainnet history; confirm that is intended`);
   }
 
-  const treasury = (process.env.PROTOCOL_TREASURY || '').trim();
-  record(/^0x[0-9a-fA-F]{40}$/.test(treasury), 'PROTOCOL_TREASURY is a valid address', treasury || '(unset)');
-  if (treasury && deployer) {
-    record(ethers.getAddress(treasury) !== ethers.getAddress(deployer.address),
-      'PROTOCOL_TREASURY is distinct from the deployer',
-      ethers.getAddress(treasury) === ethers.getAddress(deployer.address)
-        ? 'treasury == deployer; attribution would be indistinguishable and is immutable once written'
-        : treasury);
+  // --- Four distinct roles ----------------------------------------------------------------------
+  // The whole point of the canary is to prove the three economic recipients are genuinely separate
+  // on mainnet, so every pair must differ. Attribution is write-once: a collision here would be
+  // permanent and would silently invalidate the result.
+  //
+  // Who must hold a KEY, and who needs only an address:
+  //   deployer     signs the infrastructure deployments                          -> key
+  //   pad owner    becomes Launchpad.owner via msg.sender of createLaunchpad     -> key
+  //   creator      becomes tokenCreator via msg.sender of launch                 -> key
+  //   treasury     is a constructor argument and never signs; it is PAID by the
+  //                permissionless withdrawFor(party)                             -> ADDRESS ONLY
+  const roles = {
+    deployer: deployer ? deployer.address : null,
+    padOwner: (process.env.PAD_OWNER_ADDRESS || '').trim() || null,
+    tokenCreator: (process.env.TOKEN_CREATOR_ADDRESS || '').trim() || null,
+    protocolTreasury: (process.env.PROTOCOL_TREASURY || '').trim() || null,
+  };
+
+  for (const [role, address] of Object.entries(roles)) {
+    record(Boolean(address) && /^0x[0-9a-fA-F]{40}$/.test(address),
+      `${role} is a valid address`, address || '(unset)');
   }
+
+  const named = Object.entries(roles).filter(([, a]) => a && /^0x[0-9a-fA-F]{40}$/.test(a));
+  const collisions = [];
+  for (let i = 0; i < named.length; i += 1) {
+    for (let j = i + 1; j < named.length; j += 1) {
+      if (ethers.getAddress(named[i][1]) === ethers.getAddress(named[j][1])) {
+        collisions.push(`${named[i][0]} == ${named[j][0]}`);
+      }
+    }
+  }
+  record(collisions.length === 0 && named.length === 4,
+    'all four roles are distinct addresses',
+    collisions.length ? collisions.join(', ') : `${named.length}/4 roles set`);
+
+  // The two roles that must sign. Their keys are optional in env only so the preflight can run
+  // before they are supplied; the canary itself refuses to start without them.
+  for (const [role, envName, expected] of [
+    ['pad owner', 'PAD_OWNER_PRIVATE_KEY', roles.padOwner],
+    ['token creator', 'TOKEN_CREATOR_PRIVATE_KEY', roles.tokenCreator],
+  ]) {
+    const k = (process.env[envName] || '').trim();
+    if (!k) {
+      record(false, `${envName} is configured`, `${role} must sign its own transaction (msg.sender becomes the role)`);
+      continue;
+    }
+    let derived = null;
+    try { derived = new ethers.Wallet(k).address; } catch { /* invalid key */ }
+    record(Boolean(derived) && expected && ethers.getAddress(derived) === ethers.getAddress(expected),
+      `${envName} matches the declared ${role} address`,
+      derived ? `${derived}${expected ? ` vs ${expected}` : ''}` : 'key is not parseable');
+  }
+
+  console.log('\n        role -> address');
+  for (const [role, address] of Object.entries(roles)) {
+    const signs = role === 'protocolTreasury' ? 'paid via withdrawFor, never signs' : 'signs';
+    console.log(`          ${role.padEnd(17)} ${address || '(unset)'}   [${signs}]`);
+  }
+
+  const treasury = roles.protocolTreasury;
 
   // ---------------------------------------------------------------------------------------------
   section('7. Gas estimate at current conditions');
@@ -260,6 +312,11 @@ async function main() {
   // sequence against a Robinhood Chain mainnet fork, through Uniswap's real contracts. They are
   // not modelled from bytecode size. Re-run the rehearsal and paste its table if the code changes.
   const MEASURED_CANARY_GAS = {
+    // The pad owner and the token creator must each sign their own transaction, because
+    // msg.sender is what makes them the pad owner and the creator. The deployer therefore has to
+    // send them gas first. These two transfers are plain sends.
+    fundPadOwner: 21000n,
+    fundTokenCreator: 21000n,
     deployFactory: 2771806n,
     deployLauncher: 1834285n,
     deployRewards: 841432n,
@@ -268,9 +325,11 @@ async function main() {
     provingBuy: 165622n,
     collectFees: 225806n,
     collectAndSplit: 186484n,
-    withdraw_creator: 35290n,
-    withdraw_padOwner: 35290n,
-    withdraw_treasury: 32072n,
+    // All three payouts are pushed by the deployer via the permissionless withdrawFor(party), so
+    // the treasury never needs a key and never needs gas.
+    withdrawFor_creator: 35290n,
+    withdrawFor_padOwner: 35290n,
+    withdrawFor_treasury: 32072n,
   };
   for (const [name, used] of Object.entries(MEASURED_CANARY_GAS)) {
     console.log(`        ${name.padEnd(20)} ${String(used).padStart(9)} gas (measured on fork)`);
