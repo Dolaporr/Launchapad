@@ -9,7 +9,7 @@ describe('LaunchToken', () => {
   async function deployToken() {
     const [deployer, holder, spender, other] = await ethers.getSigners();
     const token = await (await ethers.getContractFactory('LaunchToken'))
-      .deploy('Alpha', 'ALPHA', holder.address);
+      .deploy('Alpha', 'ALPHA', holder.address, ethers.ZeroAddress);
     return { token, deployer, holder, spender, other };
   }
 
@@ -33,8 +33,14 @@ describe('LaunchToken', () => {
     it('takes no supply argument at all, so it cannot be launched with the wrong one', async () => {
       const Token = await ethers.getContractFactory('LaunchToken');
       const ctor = Token.interface.deploy;
-      expect(ctor.inputs.map((i) => i.type)).to.deep.equal(['string', 'string', 'address']);
+      expect(ctor.inputs.map((i) => i.type)).to.deep.equal(['string', 'string', 'address', 'address']);
       expect(ctor.inputs.map((i) => i.name)).to.not.include('supply_');
+    });
+
+    it('a token-only deployment reports no market launcher', async () => {
+      const { token } = await loadFixture(deployToken);
+      expect(await token.marketLauncher()).to.equal(ethers.ZeroAddress);
+      expect(await token.isMarketLaunch()).to.equal(false);
     });
 
     it('exposes totalSupply as an immutable with no setter', async () => {
@@ -46,7 +52,7 @@ describe('LaunchToken', () => {
 
   it('rejects a zero recipient', async () => {
     const Token = await ethers.getContractFactory('LaunchToken');
-    await expect(Token.deploy('A', 'A', ethers.ZeroAddress))
+    await expect(Token.deploy('A', 'A', ethers.ZeroAddress, ethers.ZeroAddress))
       .to.be.revertedWithCustomError(Token, 'ZeroAddress');
   });
 

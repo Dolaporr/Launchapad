@@ -20,7 +20,40 @@ export const DEPLOYMENT = {
   RESERVE_VAULT: null,
   deployedAt: '2026-09-12T22:31:54Z',
   deployTx: '0x259edebafb8ba50628bb5ba13113435379337a969f8ec154987103747096c251',
+
+  // --- Milestone 2.5 market contracts ---
+  // null until deployed. Uniswap's Liquidity Launchpad exists ONLY on Robinhood Chain mainnet
+  // (4663), so these can only be exercised against mainnet or a mainnet fork — never on testnet.
+  LAUNCHER_ADDRESS: null,
+  REWARDS_ADDRESS: null,
 };
+
+const LAUNCHER_KEY = 'launchpad-family-launcher';
+const REWARDS_KEY = 'launchpad-family-rewards';
+
+function resolveFrom(key, param, baked) {
+  let fromUrl = null;
+  try { fromUrl = new URLSearchParams(window.location.search).get(param); } catch { /* no URL */ }
+  if (fromUrl && /^0x[0-9a-fA-F]{40}$/.test(fromUrl)) {
+    try { localStorage.setItem(key, fromUrl); } catch { /* private mode */ }
+    return fromUrl;
+  }
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored && /^0x[0-9a-fA-F]{40}$/.test(stored)) return stored;
+  } catch { /* private mode */ }
+  return baked;
+}
+
+/** Market launcher address, from ?launcher=, then localStorage, then the baked-in value. */
+export function resolveLauncherAddress() {
+  return resolveFrom(LAUNCHER_KEY, 'launcher', DEPLOYMENT.LAUNCHER_ADDRESS);
+}
+
+/** Rewards splitter address, from ?rewards=, then localStorage, then the baked-in value. */
+export function resolveRewardsAddress() {
+  return resolveFrom(REWARDS_KEY, 'rewards', DEPLOYMENT.REWARDS_ADDRESS);
+}
 
 const STORAGE_KEY = 'launchpad-factory-address';
 

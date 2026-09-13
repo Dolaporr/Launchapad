@@ -456,3 +456,138 @@ new pool actually accrues fees is not measured.
 
 No mainnet transaction. No DEX/bonding-curve work of our own. No v4 hook. No NVDA buyer. Fee
 percentages are not configurable and per-pad rates do not exist in v1.
+
+---
+
+# Milestone 2.5 — real-swap validation (2026-09-13)
+
+Milestone 2 claimed the split worked but injected the fees by impersonating Uniswap's FeeSplitter.
+That left the most important number unmeasured: **how much actually arrives**. Milestone 2.5 removes
+the injection entirely. Every wei in `test/fork/RealSwaps.fork.test.js` originates from a swap
+executed against the real Uniswap v4 `PoolManager` on a Robinhood Chain mainnet fork.
+
+Run it with `npm run test:swaps`. It is skipped without `FORK_RPC`, so CI stays hermetic.
+
+## How the swaps are executed
+
+`contracts/mocks/V4TestSwapRouter.sol` is a **test-only** router. It is not part of the deployed
+system and is never referenced by production code. It does what any v4 integrator does:
+`poolManager.unlock` → `unlockCallback` → `swap` → `settle`/`take`, with `sync` + `transferFrom` on
+the ERC-20 side. Nothing about the pool, the fee tier, the position or the vault is simulated.
+
+## Measured fee deltas
+
+Numbers below are **measured on the fork**, not derived from documentation.
+
+| Step | Rate | On a 1 ETH buy |
+| --- | --- | --- |
+| Pool LP fee (`LP_FEE = 2500` = 25 bps) | 0.25% of input | 0.0025 ETH |
+| Share of the ETH-side LP fee routed to the beneficiary vault | 40% | 0.001 ETH |
+| → creator (50% of our stream) | | 0.0005 ETH |
+| → launchpad owner (30%) | | 0.0003 ETH |
+| → protocol (20%) | | 0.0002 ETH |
+
+**The effective rate reaching the creator-fee stream is 10 bps of ETH buy volume** (0.25% × 40%).
+The 50 / 30 / 20 split applies only to that 10 bps — it is not a share of swap volume and not a
+share of total LP fees. 60% of the ETH-side LP fee stays with Uniswap.
+
+One measurement that only a real swap could have surfaced: **Uniswap rounds the LP fee up.** A
+1 ETH buy charges `2500000000000001` wei, not `2500000000000000`. The tests assert a one-wei band
+rather than exact equality. Documentation would not have told us this.
+
+### Sells earn us nothing
+
+A sell pays its LP fee in the **token**, not in ETH. The FeeSplitter is configured to send **0%**
+of the token side to the beneficiary vault — the token side is 100% Uniswap's. Measured directly:
+after a real sell, `pending` for all three parties is unchanged. So creator revenue is a function of
+**ETH-denominated buy volume only**, which is roughly half of total volume in a normal market.
+Any revenue projection that uses total volume overstates income by about 2×.
+
+## The eight proofs
+
+1. **A real buy charges 25 bps of the ETH input.** Measured, with the +1 wei rounding.
+2. **Exactly 40% of that ETH fee is attributed to our position** in the real beneficiary vault.
+3. **A real sell produces zero creator stream.** Token-side fees never reach us.
+4. **`LaunchpadRewards` holds the claim and receives the real ETH** — balance delta measured around
+   the real `vault.claim`, not assumed.
+5. **The claimed amount is credited 50 / 30 / 20** and **each party withdraws exactly that in real
+   ETH** (5b).
+6. **Wei conservation** across dust (1e-6 ETH), non-round (0.3333333333 ETH), large (7 ETH) and
+   repeated buys with sells interleaved; a second collect with nothing new accrued **reverts**
+   rather than silently splitting zero; collect → trade → collect settles correctly.
+7. **A reverting recipient cannot block the others** — proven with real fees, not injected ones.
+8. **Three real pools settle independently through the same singleton**, each crediting its own
+   creator and pad owner.
+
+16 tests, all passing against real mainnet state.
+
+## Resolving the direct-launch ambiguity
+
+`Launchpad.launchToken` (a bare ERC-20, whole supply in one wallet, **no market**) and
+`LaunchpadFamilyLauncher.launch` (a real Uniswap pool with permanently locked liquidity) used to be
+indistinguishable on chain. An indexer or frontend could have presented one as the other.
+
+The fix is a **two-way cryptographic binding**, chosen over any admin control:
+
+1. `LaunchToken.marketLauncher` — immutable, set in the constructor, no setter. `address(0)` for a
+   token-only deployment. This is the token's **claim**, and on its own it is forgeable: anyone can
+   deploy an ERC-20 naming our launcher.
+2. `LaunchpadFamilyLauncher.launchOf[token]` — written only by a real launch, only after the pool
+   exists and the beneficiary NFT is confirmed to be owned by `LaunchpadRewards`.
+
+`verifyMarketLaunch(token)` returns true only when **both** halves agree. `verifiedLaunchOf(token)`
+returns the attribution alongside that boolean, so a consumer cannot read attribution without also
+reading whether it is verified.
+
+Properties this gives us:
+
+- **No new privilege.** Both functions are `view`. There is no allowlist, no admin verifier, no
+  pause. A test asserts the launcher exposes no function matching `set|owner|pause|allow|deny|
+  block|verifyAs|admin`.
+- **Not forgeable.** Tested: a token that merely claims the launcher, an arbitrary contract, an EOA,
+  the zero address, and a token launched through a *different* launcher all fail verification.
+- **The market launcher is the canonical path**, exactly as requested — `Launchpad.launchToken`
+  keeps working for token-only deployments but its doc block states it is not the production path,
+  and the UI labels its output "Token-only (no market)".
+
+11 provenance tests cover this.
+
+## Frontend
+
+Updated only enough to demonstrate the lifecycle: a market section on the pad page, a
+"verified market" badge driven by re-verifying each entry on chain (never by trusting local state),
+the immutable 50 / 30 / 20 copy, lifetime-split display, a claimable-rewards banner and a withdraw
+action. Token-only deployments render in a separately headed table.
+
+`web/e2e/market-lifecycle.mjs` proves it in a real browser against the fork: **21/21 checks pass**,
+including that the creator and pad owner each see their own balance, that the ratio is exactly
+50 : 30, and that every token-only deployment fails market verification. The only substituted piece
+is `window.ethereum` (no extension exists in a headless container); it stubs no responses.
+
+## Test counts after 2.5
+
+- `184 passing` hermetic (up from 172).
+- `16 passing` real-swap fork tests (`npm run test:swaps`).
+- `14 passing` Milestone 2 fork tests (`npm run test:fork`).
+- `21/21` browser lifecycle checks.
+
+## Remaining risks
+
+- **Nothing has run on public mainnet.** Fork state is real but historical and pinned; gas,
+  congestion and MEV on a live launch are unmeasured.
+- **Revenue depends on buy volume, and buy volume is unknown.** The 10 bps figure is solid; the
+  volume it applies to is not something we control or have data for.
+- **`collectAndSplit` is permissionless but not automatic.** Nobody is paid to call it. Fees sit in
+  the vault until someone does. A keeper is not built.
+- **We depend on Uniswap's deployment being immutable.** The addresses are pinned constants, but
+  `FeeSplitter`'s 40/0 configuration is Uniswap's, not ours. If they ever deploy a new splitter for
+  new launches, existing positions keep their terms — new ones would need a re-audit.
+- **The fork is pinned to one block.** A `FeeSplitter` upgrade upstream would not be caught until
+  the pin is moved.
+- **No mainnet gas figures.** Launch cost is measured on a fork, which approximates but does not
+  guarantee live cost.
+
+## Still not done, deliberately
+
+No mainnet transaction and no real ETH spent. No configurable fee percentages. No v4 hook. No NVDA.
+No new economic templates.

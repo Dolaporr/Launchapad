@@ -65,7 +65,7 @@ describe('ReserveVault', () => {
     it('lets the owner recover a mistakenly sent ERC-20', async () => {
       const { vault, vaultOwner, deployer, recipient } = await loadFixture(deployVault);
       const junk = await (await ethers.getContractFactory('LaunchToken'))
-        .deploy('Junk', 'JUNK', deployer.address);
+        .deploy('Junk', 'JUNK', deployer.address, ethers.ZeroAddress);
       await junk.connect(deployer).transfer(await vault.getAddress(), ethers.parseEther('500'));
 
       await expect(vault.connect(vaultOwner).sweepNonReserve(await junk.getAddress(), recipient.address))
@@ -77,7 +77,7 @@ describe('ReserveVault', () => {
     it('is owner-only', async () => {
       const { vault, stranger, deployer } = await loadFixture(deployVault);
       const junk = await (await ethers.getContractFactory('LaunchToken'))
-        .deploy('Junk', 'JUNK', deployer.address);
+        .deploy('Junk', 'JUNK', deployer.address, ethers.ZeroAddress);
       await expect(vault.connect(stranger).sweepNonReserve(await junk.getAddress(), stranger.address))
         .to.be.revertedWithCustomError(vault, 'NotOwner');
     });
@@ -85,7 +85,7 @@ describe('ReserveVault', () => {
     it('rejects zero addresses and empty sweeps', async () => {
       const { vault, vaultOwner, deployer } = await loadFixture(deployVault);
       const junk = await (await ethers.getContractFactory('LaunchToken'))
-        .deploy('Junk', 'JUNK', deployer.address);
+        .deploy('Junk', 'JUNK', deployer.address, ethers.ZeroAddress);
 
       await expect(vault.connect(vaultOwner).sweepNonReserve(ethers.ZeroAddress, vaultOwner.address))
         .to.be.revertedWithCustomError(vault, 'ZeroAddress');
@@ -143,7 +143,7 @@ describe('ReserveVault', () => {
     it('degrades gracefully for a plain ERC-20 reserve asset', async () => {
       const [, vaultOwner, holder] = await ethers.getSigners();
       const plain = await (await ethers.getContractFactory('LaunchToken'))
-        .deploy('Plain', 'PLN', holder.address);
+        .deploy('Plain', 'PLN', holder.address, ethers.ZeroAddress);
       const vault = await (await ethers.getContractFactory('ReserveVault'))
         .deploy(vaultOwner.address, await plain.getAddress());
 

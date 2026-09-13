@@ -36,7 +36,7 @@ describe('web/chain.js ABI constants', () => {
 
   it('has event topics that match keccak256', () => {
     const topics = parseBlock('TOPICS');
-    expect(Object.keys(topics)).to.have.lengthOf(2);
+    expect(Object.keys(topics)).to.have.lengthOf(3);
 
     for (const [signature, topic] of Object.entries(topics)) {
       expect(topic, `topic0 for ${signature}`).to.equal(ethers.id(signature));
@@ -45,7 +45,11 @@ describe('web/chain.js ABI constants', () => {
 
   it('only references functions that actually exist on the deployed contracts', async () => {
     const selectors = parseBlock('SELECTORS');
-    const names = ['LaunchpadFactory', 'Launchpad', 'LaunchToken'];
+    const names = [
+      'LaunchpadFactory', 'Launchpad', 'LaunchToken',
+      // Milestone 2.5 market path.
+      'LaunchpadFamilyLauncher', 'LaunchpadRewards',
+    ];
 
     const known = new Set();
     for (const name of names) {
@@ -62,7 +66,7 @@ describe('web/chain.js ABI constants', () => {
   it('only references events that actually exist', async () => {
     const topics = parseBlock('TOPICS');
     const known = new Set();
-    for (const name of ['LaunchpadFactory', 'Launchpad']) {
+    for (const name of ['LaunchpadFactory', 'Launchpad', 'LaunchpadFamilyLauncher']) {
       const { abi } = await artifacts.readArtifact(name);
       const iface = new ethers.Interface(abi);
       iface.forEachEvent((ev) => known.add(ev.format('sighash')));

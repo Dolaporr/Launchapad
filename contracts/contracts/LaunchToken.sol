@@ -27,8 +27,21 @@ contract LaunchToken {
     string public symbol;
     uint8 public constant decimals = 18;
     uint256 public immutable totalSupply;
-    /// @notice The Launchpad that deployed this token (i.e. the constructor caller).
+    /// @notice The contract that deployed this token (i.e. the constructor caller).
     address public immutable launchpad;
+
+    /// @notice The `LaunchpadFamilyLauncher` that launched this token into a real Uniswap market,
+    ///         or `address(0)` if this is a token-only deployment with no market.
+    ///
+    /// @dev THIS IS HALF OF A TWO-WAY BINDING, and half is not enough on its own. Anyone can
+    ///      deploy an ERC-20 that names a launcher here. A token is only a genuine Launchpad.family
+    ///      market launch when BOTH hold:
+    ///        1. `token.marketLauncher()` points at the launcher, AND
+    ///        2. that launcher's `launchOf(token)` points back at this token.
+    ///      Only the launcher can write (2), and it does so only after verifying that the pool was
+    ///      created and the beneficiary NFT landed on LaunchpadRewards. Use
+    ///      `LaunchpadFamilyLauncher.verifyMarketLaunch(token)`, which checks both directions.
+    address public immutable marketLauncher;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -40,14 +53,22 @@ contract LaunchToken {
     error InsufficientBalance();
     error InsufficientAllowance();
 
-    constructor(string memory name_, string memory symbol_, address recipient_) {
+    /// @param marketLauncher_ The market launcher, or `address(0)` for a token-only deployment.
+    constructor(string memory name_, string memory symbol_, address recipient_, address marketLauncher_) {
         if (recipient_ == address(0)) revert ZeroAddress();
         name = name_;
         symbol = symbol_;
         launchpad = msg.sender;
+        marketLauncher = marketLauncher_;
         totalSupply = TOTAL_SUPPLY;
         balanceOf[recipient_] = TOTAL_SUPPLY;
         emit Transfer(address(0), recipient_, TOTAL_SUPPLY);
+    }
+
+    /// @notice True when this token claims to have been launched into a real market.
+    /// @dev A CLAIM, not a proof — see `marketLauncher`. Verify with the launcher before trusting.
+    function isMarketLaunch() external view returns (bool) {
+        return marketLauncher != address(0);
     }
 
     function transfer(address to, uint256 value) external returns (bool) {

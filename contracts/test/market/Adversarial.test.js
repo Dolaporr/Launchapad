@@ -201,7 +201,7 @@ describe('Milestone 2 — adversarial', () => {
     it('Uniswap rejects any supply other than exactly 1,000,000,000 x 18', async () => {
       const { strategy } = await loadFixture(deployStack);
       const [, holder] = await ethers.getSigners();
-      const token = await (await ethers.getContractFactory('LaunchToken')).deploy('X', 'X', holder.address);
+      const token = await (await ethers.getContractFactory('LaunchToken')).deploy('X', 'X', holder.address, ethers.ZeroAddress);
 
       // The real strategy compares the declared amount against its own TOTAL_SUPPLY constant.
       await expect(

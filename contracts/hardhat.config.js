@@ -43,6 +43,9 @@ module.exports = {
     localhost: {
       url: 'http://127.0.0.1:8545',
       chainId: Number(process.env.HARDHAT_CHAIN_ID || 31337),
+      // A forked node can take minutes to serve a heavy transaction while it pulls state from the
+      // upstream RPC. The default client timeout gives up long before that.
+      timeout: 600000,
     },
     robinhoodTestnet: {
       url: process.env.RH_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com',

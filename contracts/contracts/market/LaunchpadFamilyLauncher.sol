@@ -127,7 +127,9 @@ contract LaunchpadFamilyLauncher {
         address launchpadOwner = pad.owner();
 
         // 3. Mint the whole fixed supply to this contract so it can be handed to Uniswap.
-        token = address(new LaunchToken(name, symbol, address(this)));
+        // Bind the token to this launcher at construction. Combined with the `launchOf` record
+        // written below, that is a two-way binding no third party can forge.
+        token = address(new LaunchToken(name, symbol, address(this), address(this)));
         if (launchOf[token].token != address(0)) revert DuplicateToken(token);
 
         uint256 supply = LaunchToken(token).totalSupply();
@@ -168,6 +170,40 @@ contract LaunchpadFamilyLauncher {
         allTokens.push(token);
 
         emit TokenLaunchedToUniswap(token, msg.sender, launchpad, launchpadOwner, positionTokenId);
+    }
+
+    /// @notice The canonical check that a token is a genuine Launchpad.family market launch.
+    ///
+    /// @dev Verifies BOTH directions of the binding, which is what makes it unforgeable:
+    ///        - the token names this launcher, and
+    ///        - this launcher's own record names that token and carries a real position id.
+    ///      Anyone can deploy an ERC-20 that names this launcher, but only a real launch through
+    ///      `launch()` writes the record — and that only happens after the pool was created and
+    ///      the beneficiary NFT was confirmed to be held by `LaunchpadRewards`.
+    ///
+    ///      Indexers and frontends MUST gate on this. A token-only deployment from
+    ///      `Launchpad.launchToken` returns false.
+    function verifyMarketLaunch(address token) public view returns (bool) {
+        Launch memory record = launchOf[token];
+        if (record.token != token || record.positionTokenId == 0) return false;
+        // A non-contract, or a contract without the getter, is not a market launch.
+        try LaunchToken(token).marketLauncher() returns (address claimed) {
+            return claimed == address(this);
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice The launch record, but only for a token that passes `verifyMarketLaunch`.
+    function verifiedLaunchOf(address token)
+        external
+        view
+        returns (bool verified, address tokenCreator, address launchpadOwner, address launchpad, uint256 positionTokenId)
+    {
+        verified = verifyMarketLaunch(token);
+        if (!verified) return (false, address(0), address(0), address(0), 0);
+        Launch memory record = launchOf[token];
+        return (true, record.tokenCreator, record.launchpadOwner, record.launchpad, record.positionTokenId);
     }
 
     // --- Views ---------------------------------------------------------------------------------

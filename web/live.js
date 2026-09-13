@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import * as chain from './chain.js';
-import { resolveFactoryAddress, DEPLOYMENT } from './config.js';
+import { resolveFactoryAddress, resolveLauncherAddress, resolveRewardsAddress, DEPLOYMENT } from './config.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const app = () => document.getElementById('app');
@@ -22,6 +22,10 @@ const state = {
   busy: false,
   tx: null, // {status:'pending'|'success'|'error', hash, label, message, links:[]}
   loadError: null,
+  // Milestone 2.5 — real market launches. Kept separate from `tokens` (token-only deployments)
+  // so the two can never be rendered as the same kind of thing.
+  marketLaunches: [],
+  myRewards: 0n,
 };
 
 const esc = (s = '') => String(s).replace(/[&<>'"]/g, (c) => (
@@ -114,6 +118,16 @@ function setTx(tx) {
 function factoryAddress() {
   return resolveFactoryAddress();
 }
+function launcherAddress() {
+  return resolveLauncherAddress();
+}
+function rewardsAddress() {
+  return resolveRewardsAddress();
+}
+/** Market launches are only possible where Uniswap's Liquidity Launchpad is deployed. */
+function marketAvailable() {
+  return Boolean(launcherAddress() && rewardsAddress());
+}
 
 async function loadPads() {
   state.loadError = null;
@@ -139,8 +153,39 @@ async function loadPad(address) {
         { type: 'address', value: state.account },
       ]);
     }
+    await loadMarketLaunches(address);
   } catch (error) {
     state.loadError = chain.describeError(error);
+  }
+}
+
+/**
+ * Reads this pad's REAL market launches. Every entry is re-verified on chain via the two-way
+ * binding, so a token that merely claims to be a market launch never appears here.
+ */
+async function loadMarketLaunches(padAddress) {
+  state.marketLaunches = [];
+  state.myRewards = 0n;
+  if (!marketAvailable()) return;
+
+  const launcher = launcherAddress();
+  const tokens = await chain.readMarketTokensOfPad(launcher, padAddress);
+
+  const launches = [];
+  for (const token of tokens) {
+    const record = await chain.readMarketLaunch(launcher, token);
+    if (!record) continue; // failed verification — never render it as a market launch
+    const [meta, rewardInfo] = await Promise.all([
+      chain.readToken(token),
+      chain.readRewards(rewardsAddress(), { positionTokenId: record.positionTokenId }),
+    ]);
+    launches.push({ ...record, ...meta, lifetime: rewardInfo.lifetime, splits: rewardInfo });
+  }
+  state.marketLaunches = launches;
+
+  if (state.account) {
+    const { pending } = await chain.readRewards(rewardsAddress(), { party: state.account });
+    state.myRewards = pending;
   }
 }
 
@@ -254,6 +299,81 @@ async function submitLaunchToken(form) {
     render();
   } catch (error) {
     setTx({ status: 'error', label: 'Launch token', message: chain.describeError(error) });
+  }
+}
+
+async function submitMarketLaunch(form) {
+  const data = new FormData(form);
+  const name = String(data.get('name') || '').trim();
+  const symbol = String(data.get('symbol') || '').trim().toUpperCase();
+  if (!name || !symbol) {
+    setTx({ status: 'error', label: 'Market launch', message: 'Name and symbol are both required.' });
+    return;
+  }
+
+  try {
+    setTx({ status: 'pending', label: 'Market launch', message: 'Confirm in your wallet…' });
+    const hash = await chain.launchMarketTokenTx({
+      from: state.account,
+      launcher: launcherAddress(),
+      pad: state.pad.address,
+      name,
+      symbol,
+    });
+    setTx({
+      status: 'pending', label: 'Market launch', hash,
+      message: 'Creating the Uniswap pool…', links: txLinks(hash),
+    });
+
+    const receipt = await chain.waitForReceipt(hash);
+    const topic = chain.ABI.TOPICS['TokenLaunchedToUniswap(address,address,address,address,uint256)'];
+    const tokenAddress = chain.addressFromLog(receipt, topic, 1);
+    if (!tokenAddress) throw new Error('Launched, but no TokenLaunchedToUniswap event was found.');
+
+    setTx({
+      status: 'success', label: 'Market launched', hash,
+      message: `${symbol} is live in a Uniswap pool at ${tokenAddress}`,
+      links: [...txLinks(hash), ...addressLinks(tokenAddress, 'token')],
+    });
+    await loadPad(state.pad.address);
+    render();
+  } catch (error) {
+    setTx({ status: 'error', label: 'Market launch', message: chain.describeError(error) });
+  }
+}
+
+async function submitCollect(positionTokenId) {
+  try {
+    setTx({ status: 'pending', label: 'Collect rewards', message: 'Confirm in your wallet…' });
+    const hash = await chain.collectAndSplitTx({
+      from: state.account, rewards: rewardsAddress(), positionTokenId,
+    });
+    setTx({ status: 'pending', label: 'Collect rewards', hash, message: 'Splitting 50 / 30 / 20…', links: txLinks(hash) });
+    await chain.waitForReceipt(hash);
+    setTx({
+      status: 'success', label: 'Rewards collected', hash,
+      message: 'Trading fees claimed from Uniswap and split three ways.', links: txLinks(hash),
+    });
+    await loadPad(state.pad.address);
+    render();
+  } catch (error) {
+    setTx({ status: 'error', label: 'Collect rewards', message: chain.describeError(error) });
+  }
+}
+
+async function submitWithdraw() {
+  try {
+    setTx({ status: 'pending', label: 'Withdraw rewards', message: 'Confirm in your wallet…' });
+    const hash = await chain.withdrawRewardsTx({ from: state.account, rewards: rewardsAddress() });
+    await chain.waitForReceipt(hash);
+    setTx({
+      status: 'success', label: 'Rewards withdrawn', hash,
+      message: 'Your share has been sent to your wallet.', links: txLinks(hash),
+    });
+    await loadPad(state.pad.address);
+    render();
+  } catch (error) {
+    setTx({ status: 'error', label: 'Withdraw rewards', message: chain.describeError(error) });
   }
 }
 
@@ -460,12 +580,71 @@ function renderPad() {
       : 'You can launch tokens on this pad.'}</div>`
       : '<div class="notice" style="margin-top:14px">This pad is <strong>owner only</strong> and you are not its owner, so you cannot launch here.</div>'}
 
+      ${marketSection()}
+
       ${state.tokens.length ? `<table class="token-table" style="margin-top:18px">
-        <thead><tr><th>Token</th><th>Supply</th><th>Address</th></tr></thead>
+        <thead><tr><th>Token-only (no market)</th><th>Supply</th><th>Address</th></tr></thead>
         <tbody>${state.tokens.map(tokenRow).join('')}</tbody></table>`
     : `<div class="empty">${state.busy ? 'Reading from chain…' : 'No tokens launched on this pad yet.'}</div>`}
     </div>
   </section>`;
+}
+
+/**
+ * The market section. Everything here is a VERIFIED market launch — each entry passed the
+ * two-way on-chain binding check before being rendered. Token-only deployments are rendered
+ * separately, below, and are labelled as having no market.
+ */
+function marketSection() {
+  if (!marketAvailable()) {
+    return `<div class="notice" style="margin-top:18px"><strong>Market launches unavailable here.</strong>
+      Uniswap's Liquidity Launchpad is deployed on Robinhood Chain <strong>mainnet only</strong>, so real
+      pools cannot be created on testnet. Point the app at a launcher with
+      <code>?launcher=0x…&amp;rewards=0x…</code> to enable this section.</div>`;
+  }
+
+  const pad = state.pad;
+  const canLaunch = pad.callerCanLaunch === true;
+  const rows = state.marketLaunches.map(marketRow).join('');
+
+  return `<div class="market-block">
+    <div class="toolbar" style="margin-top:24px">
+      <div><div class="eyebrow green">Real market</div>
+        <h2 style="margin:6px 0">Uniswap pools</h2></div>
+      <button class="btn primary" id="marketLaunchBtn" ${!canLaunch || !state.account ? 'disabled' : ''}>
+        Launch market token +</button>
+    </div>
+    <div class="notice">A market launch creates a <strong>real Uniswap v4 pool</strong> and puts the
+      entire supply in as permanently locked liquidity. The creator receives no tokens — they receive
+      <strong>50%</strong> of the pool's creator-fee stream, with 30% to the pad owner and 20% to the
+      protocol. Those shares are immutable.</div>
+
+    ${state.myRewards > 0n ? `<div class="reward-banner" id="rewardBanner">
+      <div><div class="metric-label">Your claimable rewards</div>
+        <div class="value green">${esc(chain.formatUnits(state.myRewards))} ETH</div></div>
+      <button class="btn primary small" id="withdrawBtn">Withdraw</button></div>` : ''}
+
+    ${rows ? `<table class="token-table" style="margin-top:16px">
+      <thead><tr><th>Market token</th><th>Creator</th><th>Pad owner</th><th>Fees split</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table>`
+    : `<div class="empty">${state.busy ? 'Reading from chain…' : 'No market launches on this pad yet.'}</div>`}
+  </div>`;
+}
+
+function marketRow(launch) {
+  const link = chain.explorerUrl('address', launch.address, state.chainId);
+  const isCreator = state.account && launch.tokenCreator.toLowerCase() === state.account.toLowerCase();
+  const isPadOwner = state.account && launch.launchpadOwner.toLowerCase() === state.account.toLowerCase();
+  return `<tr>
+    <td><strong>$${esc(launch.symbol)}</strong> <span class="pill pill-open">verified market</span>
+      <div class="muted mono small">${esc(chain.shortAddress(launch.address))}
+        ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">↗</a>` : ''}</div></td>
+    <td class="mono small">${esc(chain.shortAddress(launch.tokenCreator))}${isCreator ? ' <strong>(you)</strong>' : ''}</td>
+    <td class="mono small">${esc(chain.shortAddress(launch.launchpadOwner))}${isPadOwner ? ' <strong>(you)</strong>' : ''}</td>
+    <td class="small">50 / 30 / 20<div class="muted">split so far: ${esc(chain.formatUnits(launch.lifetime))} ETH</div></td>
+    <td><button class="btn ghost small" data-collect="${launch.positionTokenId}"
+      ${!state.account ? 'disabled' : ''}>Collect</button></td>
+  </tr>`;
 }
 
 function tokenRow(token) {
@@ -502,6 +681,31 @@ function tokenModal() {
   };
 }
 
+function marketLaunchModal() {
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-backdrop';
+  wrap.innerHTML = `<form class="card modal" id="marketLaunchForm">
+    <div class="modal-head"><div><div class="eyebrow green">${esc(state.pad.name)}</div>
+      <h2>Launch into a real Uniswap pool</h2></div>
+      <button class="icon-btn" type="button" id="closeMarketModal">×</button></div>
+    <div class="field"><label>Name</label><input name="name" maxlength="64" required placeholder="My Token" /></div>
+    <div class="field"><label>Symbol</label><input name="symbol" maxlength="11" required placeholder="MTK" /></div>
+    <div class="field"><label>Supply</label><input value="1,000,000,000 (fixed)" disabled /></div>
+    <div class="notice"><strong>You receive no tokens.</strong> The entire supply becomes permanently
+      locked liquidity in a Uniswap v4 pool — neither you, nor the pad owner, nor Launchpad.family
+      can withdraw it. What you receive is 50% of the pool's creator-fee stream, for as long as the
+      pool trades.</div>
+    <button class="btn primary" style="width:100%;margin-top:18px" type="submit">Create the pool →</button>
+  </form>`;
+  document.body.appendChild(wrap);
+  $('#closeMarketModal', wrap).onclick = () => wrap.remove();
+  $('#marketLaunchForm', wrap).onsubmit = async (e) => {
+    e.preventDefault();
+    wrap.remove();
+    await submitMarketLaunch(e.target);
+  };
+}
+
 function bind() {
   const on = (id, handler, event = 'click') => {
     const el = document.getElementById(id);
@@ -516,6 +720,11 @@ function bind() {
   on('newPadBtn', () => go('live-create'));
   on('backBtn', () => go('live'));
   on('launchTokenBtn', tokenModal);
+  on('marketLaunchBtn', marketLaunchModal);
+  on('withdrawBtn', submitWithdraw);
+  document.querySelectorAll('[data-collect]').forEach((b) => {
+    b.addEventListener('click', () => submitCollect(BigInt(b.dataset.collect)));
+  });
 
   const createForm = document.getElementById('createPadForm');
   if (createForm) {

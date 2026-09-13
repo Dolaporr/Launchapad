@@ -51,6 +51,22 @@ export const ABI = {
     'totalSupply()': '0x18160ddd',
     'balanceOf(address)': '0x70a08231',
     'decimals()': '0x313ce567',
+    // --- Milestone 2.5: market launches through Uniswap ---
+    'launch(address,string,string)': '0xce7b50f1',
+    'verifyMarketLaunch(address)': '0x745d1e35',
+    'verifiedLaunchOf(address)': '0xd191a66b',
+    'tokensOfLaunchpad(address)': '0x1fa7c263',
+    'launchOf(address)': '0x029282d7',
+    'allTokens(uint256)': '0x634282af',
+    'marketLauncher()': '0xfbc07d57',
+    'isMarketLaunch()': '0xacff1543',
+    'pending(address)': '0x5eebea20',
+    'collectAndSplit(uint256)': '0x3458beb5',
+    'withdraw()': '0x3ccfd60b',
+    'lifetimeDistributed(uint256)': '0x2a2e6203',
+    'CREATOR_BPS()': '0x45904567',
+    'PAD_OWNER_BPS()': '0xc833d8d4',
+    'PROTOCOL_BPS()': '0xc1e7af35',
   },
   // Event topic0 (keccak256 of the full event signature).
   TOPICS: {
@@ -58,6 +74,8 @@ export const ABI = {
       '0x250a87cdd3d55ffa4a6a59db17dbe48b7250ad56fbf2a6782958f25a2d8f7e3d',
     'TokenLaunched(address,address,string,string,uint256)':
       '0x1a8ab442384acdb09c73bc5f71549c099dad32203f07e1655e0ebce05831f749',
+    'TokenLaunchedToUniswap(address,address,address,address,uint256)':
+      '0x2fd6deff2f7d7caf7306d19d27f3b6ed9f732b7cf47683a76664a8703e663d65',
   },
 };
 
@@ -379,6 +397,77 @@ export async function createLaunchpadTx({ from, factory, name, metadataURI, pres
 /// Supply is not a parameter: every LaunchToken is fixed at 1,000,000,000 x 18 decimals,
 /// because Uniswap's InstantLaunchStrategy rejects anything else.
 export const FIXED_TOKEN_SUPPLY = 1000000000n;
+
+// ---------------------------------------------------------------------------
+// Market launches (Milestone 2.5)
+//
+// A market launch creates a real Uniswap v4 pool with permanently locked liquidity.
+// A token-only deployment (`launchTokenTx` below) creates neither. The UI must never
+// present them as the same thing — always gate on `verifyMarketLaunch`.
+// ---------------------------------------------------------------------------
+
+/// Sends the real market launch: pad -> Uniswap Liquidity Launchpad -> pool + attribution.
+export async function launchMarketTokenTx({ from, launcher, pad, name, symbol }) {
+  const data = encodeCall('launch(address,string,string)', [
+    { type: 'address', value: pad },
+    { type: 'string', value: name },
+    { type: 'string', value: symbol },
+  ]);
+  return sendTransaction({ from, to: launcher, data });
+}
+
+/// The canonical check. Both directions of the binding, verified on chain.
+export async function isVerifiedMarketLaunch(launcher, token) {
+  return callBool(launcher, 'verifyMarketLaunch(address)', [{ type: 'address', value: token }]);
+}
+
+/// Reads the immutable attribution for a verified market launch.
+export async function readMarketLaunch(launcher, token) {
+  const raw = await ethCall(launcher, encodeCall('verifiedLaunchOf(address)', [
+    { type: 'address', value: token },
+  ]));
+  const hex = (raw || '').replace(/^0x/, '');
+  if (hex.length < 64 * 5) return null;
+  const word = (i) => hex.slice(i * 64, (i + 1) * 64);
+  const verified = BigInt(`0x${word(0)}`) === 1n;
+  if (!verified) return null;
+  return {
+    token,
+    verified,
+    tokenCreator: decodeAddress(word(1)),
+    launchpadOwner: decodeAddress(word(2)),
+    launchpad: decodeAddress(word(3)),
+    positionTokenId: BigInt(`0x${word(4)}`),
+  };
+}
+
+export async function readMarketTokensOfPad(launcher, pad) {
+  return callAddressArray(launcher, 'tokensOfLaunchpad(address)', [{ type: 'address', value: pad }]);
+}
+
+/// What a party can withdraw right now, and what has been distributed for a position so far.
+export async function readRewards(rewards, { party, positionTokenId }) {
+  const [pending, lifetime, creatorBps, padBps, protocolBps] = await Promise.all([
+    party ? callUint(rewards, 'pending(address)', [{ type: 'address', value: party }]) : Promise.resolve(0n),
+    positionTokenId !== undefined
+      ? callUint(rewards, 'lifetimeDistributed(uint256)', [{ type: 'uint', value: positionTokenId }])
+      : Promise.resolve(0n),
+    callUint(rewards, 'CREATOR_BPS()'),
+    callUint(rewards, 'PAD_OWNER_BPS()'),
+    callUint(rewards, 'PROTOCOL_BPS()'),
+  ]);
+  return { pending, lifetime, creatorBps, padBps, protocolBps };
+}
+
+/// Permissionless: pulls this position's accrued fees from Uniswap and splits them 50/30/20.
+export async function collectAndSplitTx({ from, rewards, positionTokenId }) {
+  const data = encodeCall('collectAndSplit(uint256)', [{ type: 'uint', value: positionTokenId }]);
+  return sendTransaction({ from, to: rewards, data });
+}
+
+export async function withdrawRewardsTx({ from, rewards }) {
+  return sendTransaction({ from, to: rewards, data: encodeCall('withdraw()') });
+}
 
 export async function launchTokenTx({ from, pad, name, symbol }) {
   const data = encodeCall('launchToken(string,string)', [

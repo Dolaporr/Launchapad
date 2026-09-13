@@ -110,8 +110,11 @@ contract Launchpad {
     ///      parameter the live path cannot honour would be a lie in the ABI.
     /// @dev The entire supply is minted to `msg.sender`. Under `Open` that is the third-party
     ///      creator, not the pad owner: the pad owner receives no tokens and has no claim on them.
-    ///      This is the DIRECT path, which creates no market. To launch into a real Uniswap v4
-    ///      pool, go through `LaunchpadFamilyLauncher` instead.
+    ///      This is the DIRECT path. It creates NO market, NO pool and NO liquidity — it is a bare
+    ///      ERC-20 deployment. It is NOT the canonical Launchpad.family production path;
+    ///      `LaunchpadFamilyLauncher.launch` is. Tokens minted here report
+    ///      `marketLauncher() == address(0)` and `isMarketLaunch() == false`, so frontends and
+    ///      indexers must not present them as market launches.
     function launchToken(string calldata tokenName, string calldata symbol)
         external
         returns (address token)
@@ -125,7 +128,9 @@ contract Launchpad {
 
         // Read the supply back off the deployed token rather than restating the constant here,
         // so the event can never disagree with what was actually minted.
-        LaunchToken deployed = new LaunchToken(tokenName, symbol, msg.sender);
+        // marketLauncher = address(0): this is the DIRECT path and creates NO market. The token
+        // self-reports that, so an indexer can never confuse it with a real market launch.
+        LaunchToken deployed = new LaunchToken(tokenName, symbol, msg.sender, address(0));
         uint256 supply = deployed.totalSupply();
         token = address(deployed);
         tokens.push(token);

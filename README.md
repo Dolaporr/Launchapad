@@ -253,14 +253,15 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
 
 | Thing | Status |
 |---|---|
-| NVDA purchase | **Does not exist.** No DEX integration anywhere. |
-| 1% fee enforcement | **Not enforced.** No on-chain market; nothing calls `FeeRouter`. |
-| Trading / bonding curve | **Does not exist.** `launchToken` mints 100% of supply to the creator. |
+| NVDA purchase | **Does not exist.** Not started. |
+| 1% fee enforcement | **Not enforced** on the `FeeRouter` path — it has no market. The market path (Milestone 2.5) earns instead through Uniswap's own creator-fee stream, which is enforced by the pool. |
+| Trading / bonding curve | **No bonding curve, by design.** Real trading comes from a Uniswap v4 pool created at launch. `Launchpad.launchToken` still mints 100% to the creator and creates **no market** — it is not the production path, and `verifyMarketLaunch` returns false for anything it produces. |
+| Market contracts on chain | **Not deployed.** Uniswap's Liquidity Launchpad exists only on mainnet (4663), so these can be exercised only against mainnet or a mainnet fork. |
 | NVDA Reserve in the live UI | **Deliberately not offered.** Canonical NVDA does not exist on testnet, so an NVDA pad created there could not do what its name claims. The preset still exists in the contracts. |
 | Standard economics | **Alpha default, not final product policy.** 0.60% / 0.50% / 0.10% is a placeholder chosen for legibility, not validated against any market. |
 | Launchpad re-branding | `name`/`metadataURI` are fixed at creation; re-brand by re-publishing the content behind the URI. |
 | Audit | **None.** Do not put real money near this. |
-| Deployments | **None.** Nothing has been deployed to any public network. |
+| Deployments | **Testnet only.** The Milestone 1 factory is live on Robinhood Chain testnet (see "Live deployment"). Nothing is on mainnet. |
 
 ---
 
@@ -269,7 +270,15 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
 1. **Milestone 1 — DONE, live on public Robinhood Chain testnet (chain 46630).**
    See "Live deployment" below. Wallet A created an Open launchpad; wallet B — a different
    wallet — launched a token through it and holds 100% of its supply.
-2. **Milestone 2:** a real trading path, so the fee has something to be charged on.
+2. **Milestone 2 + 2.5 — BUILT AND VALIDATED ON A MAINNET FORK. Not deployed.**
+   `LaunchpadFamilyLauncher` + `LaunchpadRewards` launch a token straight into a real Uniswap v4
+   pool via Robinhood Chain's official Liquidity Launchpad, with liquidity permanently locked and
+   the creator-fee stream split **50 / 30 / 20** between token creator, launchpad owner and
+   protocol. Validated by **real swaps** on a fork: the measured rate reaching that stream is
+   **10 bps of ETH buy volume** (Uniswap's 25 bps LP fee × the 40% ETH-side share routed to the
+   beneficiary vault). Sells pay their fee in the token and earn us nothing.
+   See [`docs/milestone-2-market-architecture.md`](docs/milestone-2-market-architecture.md).
+   **No mainnet transaction has been sent.**
 3. **Milestone 3:** the constrained NVDA buyer module — swap into canonical NVDA only, enforce
    minimum output, deposit into `ReserveVault`, emit an explorer-verifiable trail. Mainnet-only,
    since canonical NVDA does not exist on testnet.
