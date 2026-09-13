@@ -1,41 +1,43 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-shell="apex">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Foundry — Launchpad factory (local demo)</title>
-  <link rel="stylesheet" href="styles.css" />
+  <title>Launchpad.family — build your own launchpad</title>
+  <meta name="description" content="Infrastructure for creating launchpads. Configure your own branded launchpad, create it on chain, and get a hosted version." />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/family/family.css" />
 </head>
-<body>
-  <div class="noise"></div>
+<body class="family">
+  <div class="noise" aria-hidden="true"></div>
 
-  <!-- Mode banner. Swapped by app.js/live.js so a user always knows which half they are in. -->
-  <div class="demo-banner" id="modeBanner" role="status">
-    <strong>Demo mode.</strong> No wallet, no chain, no real tokens. Every figure here is simulated
-    and stored in your browser. Nothing here buys NVDA.
-    <a href="#live" class="banner-link">Switch to live testnet →</a>
-  </div>
-
-  <header class="nav shell">
-    <button class="brand" data-route="home"><span class="brand-mark">F</span><span>FOUNDRY</span></button>
-    <nav>
-      <button data-route="explore">Explore (demo)</button>
-      <a href="#live" class="nav-link" id="liveNav">Live testnet</a>
-      <button data-route="create" class="nav-cta">Create a pad (demo)</button>
+  <header class="fam-nav">
+    <a class="fam-brand" href="/">
+      <span class="fam-mark">LF</span>
+      <span class="fam-wordmark">Launchpad<span class="dim">.family</span></span>
+    </a>
+    <nav class="fam-nav-links">
+      <a href="/#pads">Launchpads</a>
+      <a href="/#dashboard" id="navDashboard">My launchpads</a>
+      <a class="btn primary small" href="/#create">Build a launchpad</a>
     </nav>
+    <div class="fam-wallet" id="walletSlot"></div>
   </header>
 
-  <main id="app"></main>
+  <main id="app" class="fam-main">
+    <div class="fam-boot">Loading…</div>
+  </main>
 
-  <footer class="shell footer">
-    <div><span class="brand-mark small">F</span> <span id="footerMode">Foundry Alpha — browser demo</span></div>
-    <div class="muted">
-      <span id="footerChain">Not connected to Robinhood Chain</span> • build 0.1
-      <button id="resetDemo" class="link-btn" type="button">Reset demo data</button>
+  <footer class="fam-footer">
+    <div>
+      <strong>Launchpad.family</strong> — infrastructure for building launchpads.
     </div>
+    <p class="muted small">
+      Launchpads and tokens created here are onchain and permissionless. Launchpad.family does not
+      endorse, review or vouch for any launchpad, token or team. Nothing here is investment advice.
+    </p>
   </footer>
 
-  <script src="app.js"></script>
-  <script type="module" src="live.js"></script>
+  <script type="module" src="/family/apex.js"></script>
 </body>
 </html>

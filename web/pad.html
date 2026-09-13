@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-shell="pad">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Replaced at runtime with the pad's own name: the owner's brand leads, not ours. -->
+  <title>Launchpad</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/family/family.css" />
+</head>
+<body class="family pad-shell">
+  <div class="noise" aria-hidden="true"></div>
+
+  <!--
+    The pad's masthead is rendered by pad.js from the pad's own branding.
+    Launchpad.family appears once, in the footer, as infrastructure — never as
+    the header brand. The user built AI.fun; this is AI.fun.
+  -->
+  <header class="pad-nav" id="padNav"></header>
+
+  <main id="app" class="fam-main">
+    <div class="fam-boot">Loading…</div>
+  </main>
+
+  <footer class="fam-footer">
+    <div class="pad-footer-mark">
+      Launchpad infrastructure by
+      <a href="https://launchpad.family" id="familyLink">Launchpad.family</a>
+    </div>
+    <p class="muted small" id="padFooterNote">
+      This launchpad is operated by its owner. Launchpad.family does not endorse, review or vouch
+      for it, its tokens or its creators.
+    </p>
+  </footer>
+
+  <script type="module" src="/family/pad.js"></script>
+</body>
+</html>
