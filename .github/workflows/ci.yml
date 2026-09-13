@@ -65,8 +65,38 @@ jobs:
         with:
           node-version: '22'
 
+      # The server has no dependencies of its own, but its chain tests stand up a
+      # real EVM and check signature recovery against it, which needs hardhat and
+      # ethers from contracts/. Without this they skip themselves — silently, and
+      # exactly the tests that prove owner authentication works.
+      - name: Install the test-only toolchain
+        working-directory: contracts
+        run: npm ci
+
+      # pipefail matters: without it `tee` supplies the exit status and a failing
+      # test suite would report green.
       - name: Test
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/server-test.log
+
+      # `node --test` exits 0 when its glob matches nothing, and a test that skips
+      # itself also exits 0. Neither is a pass, so the counts are checked rather
+      # than the exit code.
+      - name: Assert the tests actually ran
+        run: |
+          set -euo pipefail
+          count() { sed -n "s/^[^0-9]*$1 \([0-9]\+\)$/\1/p" /tmp/server-test.log | tail -1; }
+          pass="$(count pass)"; fail="$(count fail)"; skipped="$(count skipped)"
+          echo "pass=$pass fail=$fail skipped=$skipped"
+          if [[ -z "$pass" || "$pass" -lt 100 ]]; then
+            echo "::error::Expected at least 100 passing server tests, got '${pass:-none}'."
+            exit 1
+          fi
+          if [[ "$fail" != "0" || "$skipped" != "0" ]]; then
+            echo "::error::Server tests must not fail or skip (fail=$fail skipped=$skipped)."
+            exit 1
+          fi
 
       # The server claims zero runtime dependencies. That claim is only worth
       # anything if something checks it.
