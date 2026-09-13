@@ -491,9 +491,14 @@ Numbers below are **measured on the fork**, not derived from documentation.
 The 50 / 30 / 20 split applies only to that 10 bps — it is not a share of swap volume and not a
 share of total LP fees. 60% of the ETH-side LP fee stays with Uniswap.
 
-One measurement that only a real swap could have surfaced: **Uniswap rounds the LP fee up.** A
-1 ETH buy charges `2500000000000001` wei, not `2500000000000000`. The tests assert a one-wei band
-rather than exact equality. Documentation would not have told us this.
+One measurement that only a real swap could have surfaced: **the realised LP fee is not exactly
+25 bps — it lands within one wei of it, in either direction.** A 1 ETH buy charges
+`2500000000000001` wei (one over); a 0.001 ETH buy charges `2499999999999` wei (one under). The
+tests assert a one-wei band rather than exact equality. Documentation would not have told us this.
+
+> **Corrected 2026-09-13.** This section originally said "Uniswap rounds the LP fee up", generalised
+> from the 1 ETH measurement alone. The canary rehearsal at 0.001 ETH rounds *down*, so the
+> direction is not fixed. Only the one-wei bound holds.
 
 ### Sells earn us nothing
 
@@ -591,3 +596,91 @@ is `window.ethereum` (no extension exists in a headless container); it stubs no 
 
 No mainnet transaction and no real ETH spent. No configurable fee percentages. No v4 hook. No NVDA.
 No new economic templates.
+
+---
+
+# Milestone 3 — mainnet canary (prepared, NOT executed)
+
+Approved as **one controlled canary**, explicitly not a public launch. Nothing below has been sent
+to mainnet. As of this writing the preflight **aborts**, so no transaction exists.
+
+## Identity
+
+Deliberately non-promotional: **Launchpad Family Canary / $CANARY**. It is not marketed, no value
+is implied, and no artificial volume is seeded. The single buy below exists only to prove that fee
+routing works end to end on live infrastructure.
+
+## Preflight — `npm run canary:preflight`
+
+Read-only; signs nothing. Every check is a hard gate and **any discrepancy aborts without
+adapting** — no falling back to another address, no relaxing an expectation. A silent adaptation
+would destroy exactly the signal the preflight exists to produce.
+
+40 checks: chain id 4663; bytecode present at all seven pinned Uniswap dependencies with codehashes
+unchanged against `canary-baseline.json`; every pinned address still registry status `active` on
+4663; the creator-fee splitter still 40% ETH / 0% token to the beneficiary vault with
+`useCallback` true and both sides summing to 100%; the InstantLaunch strategy still 1e9 × 1e18,
+`LP_FEE` 2500, still pointing at the pinned vault and position manager; LiquidityLauncher not
+self-destructed; deployer key, balance and nonce; treasury valid and distinct from the deployer;
+and a gas estimate against a `MAX_ETH_BUDGET` ceiling.
+
+Deprecation deserves its own note: it is **not observable from bytecode**. Uniswap leaves
+deprecated contracts on chain and marks them only in the registry, so that check reads
+`https://developers.uniswap.org/deployments.json` directly rather than inferring from state.
+
+## Rehearsal — `npm run canary:rehearse`
+
+The full canary sequence against a mainnet fork, through the **same code path** the real run uses.
+Passes end to end. The proving buy goes through Uniswap's real `UniversalRouter` (a `V4_SWAP`
+command over `SWAP_EXACT_IN_SINGLE` / `SETTLE_ALL` / `TAKE_ALL`), so the test-only
+`V4TestSwapRouter` never touches mainnet.
+
+### What the rehearsal corrected
+
+| Claim | Reality |
+|---|---|
+| "Uniswap rounds the LP fee up" | It rounds within **one wei either way**. 1 ETH → `+1`; 0.001 ETH → `−1`. |
+| "The entire 1B supply sits in the pool" | All but **17,786 base units**, which Uniswap's strategy **burns** to `0x…dEaD`. |
+| "The split is exactly 50:30:20" | Creator and pad owner are **floored**; the protocol takes the **remainder**, absorbing ≤ 2 wei of dust. |
+
+The supply path, traced from the launch transaction's `Transfer` log:
+
+```
+mint → our launcher → LiquidityLauncher → strategy → PositionManager → PoolManager
+                                        PoolManager → strategy → 0x…dEaD   (17,786 units)
+```
+
+So the accurate statement of "the whole supply is in the locked liquidity path" is: **every unit is
+either permanently locked liquidity or burned, and not one unit is held by the creator, pad owner,
+deployer, treasury, our launcher or our rewards contract.**
+
+### Measured gas
+
+Measured on the fork, not modelled — the bytecode-size model was out by more than 3× on the launch.
+
+| Transaction | Gas |
+|---|---|
+| deploy `LaunchpadFactory` | 2,771,806 |
+| deploy `LaunchpadFamilyLauncher` | 1,834,285 |
+| deploy `LaunchpadRewards` | 841,432 |
+| `createLaunchpad` | 1,895,007 |
+| **market launch** | **1,234,753** |
+| proving buy (UniversalRouter) | 165,622 |
+| `collectFees` | 225,806 |
+| `collectAndSplit` | 186,484 |
+| three withdrawals | 102,652 |
+| **total** | **9,257,847** |
+
+At the mainnet gas price observed during preflight (~0.17 gwei `maxFeePerGas`) and a +50% safety
+margin, that is **~0.0023 ETH of gas**; with a 0.001 ETH proving buy, **~0.0033 ETH total** against
+a **0.006 ETH** ceiling.
+
+## Blocked on
+
+1. **Deployer funding.** `0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461` holds 0.0 ETH on mainnet
+   (nonce 0 — no mainnet history).
+2. **A distinct protocol treasury.** `PROTOCOL_TREASURY` currently equals the deployer. Attribution
+   is written once and is immutable, so shipping them identical would permanently collapse creator,
+   pad owner and protocol into one wallet and the canary would prove nothing about separability.
+
+Both are user decisions. The preflight refuses to proceed until they are resolved.
