@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "label": "mainnet canary 2026-09-13 \u2014 the proven baseline",
+  "frozen": true,
+  "chainId": 4663,
+  "contracts": {
+    "LaunchpadFactory": "0xB314cd4731c4F3B4025FCcF5B8E0a3072E8BCbde",
+    "LaunchpadFamilyLauncher": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6",
+    "LaunchpadRewards": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+  },
+  "launchpad": {
+    "address": "0x755b0d58Db11c845FB19a28CD5F0717c24098681",
+    "owner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "policy": 1,
+    "name": "Launchpad Family Canary Pad"
+  },
+  "token": {
+    "address": "0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4",
+    "name": "Launchpad Family Canary",
+    "symbol": "CANARY",
+    "decimals": 18,
+    "totalSupply": "1000000000000000000000000000",
+    "marketLauncher": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6"
+  },
+  "pool": {
+    "poolId": "0xb89cf6c34102412488105870e0a7465ba8eea32d242466dd8e873bd57bea7480",
+    "positionTokenId": "2635400",
+    "currency0": "0x0000000000000000000000000000000000000000",
+    "currency1": "0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4",
+    "fee": 2500,
+    "tickSpacing": 25,
+    "hooks": "0x0000000000000000000000000000000000000000",
+    "positionOwner": "0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf",
+    "beneficiaryOwner": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+  },
+  "roles": {
+    "tokenCreator": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+    "launchpadOwner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "protocolTreasury": "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef",
+    "deployer": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461"
+  },
+  "splitBps": {
+    "creator": 5000,
+    "launchpadOwner": 3000,
+    "protocol": 2000
+  },
+  "launchTransaction": {
+    "hash": "0x2510145068dcdcfe7a266966a31b60a4ab1c984d7c0b8e9d6d042f693ae3c075",
+    "block": 62053834
+  },
+  "dependencies": {
+    "liquidityLauncher": {
+      "address": "0x0000FffFBE8efE702c8703aE3477FF5dE3d319C0",
+      "codeHash": "0x4a586d925c9d59ece13ce2239ebd7dea9ee725f9d33c6667e0fd16ae8d977d80",
+      "registryStatus": "active"
+    },
+    "instantLaunchStrategy": {
+      "address": "0x23f8209572b4a1C2AD88A42749E830791Fb027f1",
+      "codeHash": "0x29df27cf43533e9b3708dcd2a2c0fd17a1a8796407e7d39375f47e5c809cffca",
+      "registryStatus": "active"
+    },
+    "feeSplitter": {
+      "address": "0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf",
+      "codeHash": "0x8238e5106b3a895514083110d1f3b4e51be61148604f35113719af56ae325f42",
+      "registryStatus": "active"
+    },
+    "beneficiaryVault": {
+      "address": "0xd35E9CA72F64C7F93BE30fad67524323396B36D7",
+      "codeHash": "0x725412bf002214373afc095b0b9e4c756b1d12ac37d5c7dfe1667db4385403b6",
+      "registryStatus": "active"
+    },
+    "positionManager": {
+      "address": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+      "codeHash": "0xc873e135dc9aaec88489cfbad146b4cb49d6a32e0d80326377784b7ba17670b2",
+      "registryStatus": "active"
+    },
+    "poolManager": {
+      "address": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "codeHash": "0xbd3881180b547f5fe817545743cfb4343e96b1bc6640dcd70c106b0066e95626",
+      "registryStatus": "active"
+    },
+    "universalRouter": {
+      "address": "0x06AfBA43Fd06227fA663b0DAecF536f6EaA6bf99",
+      "codeHash": "0xbe8e8191bb42d843c2e948a5a55772eaab864ce01e54dcd47c9d089170b302d5",
+      "registryStatus": "active"
+    }
+  },
+  "verification": {
+    "status": "VERIFIED",
+    "verifiedAt": "2026-09-13T16:00:08.111Z",
+    "checks": [
+      {
+        "id": "launcher.hasCode",
+        "passed": true,
+        "detail": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6"
+      },
+      {
+        "id": "launcher.isCorrectlyWired",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "id": "rewards.registrarIsLauncher",
+        "passed": true,
+        "detail": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6"
+      },
+      {
+        "id": "launch.recordedByLauncher",
+        "passed": true,
+        "detail": "0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4"
+      },
+      {
+        "id": "launch.verifyMarketLaunch",
+        "passed": true,
+        "detail": "true"
+      },
+      {
+        "id": "token.namesThisLauncher",
+        "passed": true,
+        "detail": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6"
+      },
+      {
+        "id": "launchpad.knownToFactory",
+        "passed": true,
+        "detail": "0x755b0d58Db11c845FB19a28CD5F0717c24098681"
+      },
+      {
+        "id": "launchpad.ownerMatchesAttribution",
+        "passed": true,
+        "detail": "pad.owner=0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b attribution=0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b"
+      },
+      {
+        "id": "token.supplyIsOneBillion18",
+        "passed": true,
+        "detail": "1000000000000000000000000000 (Uniswap's strategy accepts only 1e9 x 1e18)"
+      },
+      {
+        "id": "token.decimalsIs18",
+        "passed": true,
+        "detail": "18"
+      },
+      {
+        "id": "pool.exists",
+        "passed": true,
+        "detail": "sqrtPriceX96=1581585204921551210154426847482065 tick=198042"
+      },
+      {
+        "id": "pool.feeIs25Bps",
+        "passed": true,
+        "detail": "2500"
+      },
+      {
+        "id": "liquidity.permanentlyLocked",
+        "passed": true,
+        "detail": "position owner 0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf"
+      },
+      {
+        "id": "beneficiary.ownedByRewards",
+        "passed": true,
+        "detail": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+      },
+      {
+        "id": "attribution.registered",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "id": "attribution.creatorAgrees",
+        "passed": true,
+        "detail": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811 vs 0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811"
+      },
+      {
+        "id": "attribution.padOwnerAgrees",
+        "passed": true,
+        "detail": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b vs 0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b"
+      },
+      {
+        "id": "attribution.tokenAgrees",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "id": "split.sumsTo100Pct",
+        "passed": true,
+        "detail": "5000/3000/2000"
+      },
+      {
+        "id": "roles.threeDistinctRecipients",
+        "passed": true,
+        "detail": "3/3 distinct"
+      },
+      {
+        "id": "launch.eventFound",
+        "passed": true,
+        "detail": "block 62053834"
+      },
+      {
+        "id": "supply.reconcilesExactly",
+        "passed": true,
+        "detail": "pool 999601544770340127288452187 + burned 17786 + holders 398455229659872711530027 = 1000000000000000000000000000 vs supply 1000000000000000000000000000"
+      },
+      {
+        "id": "supply.noPrivilegedPartyHoldsSupply",
+        "passed": true,
+        "detail": "none"
+      },
+      {
+        "id": "fees.splitConservesEveryWei",
+        "passed": true,
+        "detail": "credited 1001999548000 vs claimed 1001999548000"
+      },
+      {
+        "id": "fees.creatorShareCorrect",
+        "passed": true,
+        "detail": "500999774000 vs 500999774000"
+      },
+      {
+        "id": "fees.padOwnerShareCorrect",
+        "passed": true,
+        "detail": "300599864400 vs 300599864400"
+      },
+      {
+        "id": "fees.protocolDustWithinBound",
+        "passed": true,
+        "detail": "dust 0 wei across 1 split(s)"
+      },
+      {
+        "id": "fees.creator.creditedEqualsWithdrawnPlusPending",
+        "passed": true,
+        "detail": "withdrawn 500999774000 + pending 0 = 500999774000 vs credited 500999774000"
+      },
+      {
+        "id": "fees.launchpadOwner.creditedEqualsWithdrawnPlusPending",
+        "passed": true,
+        "detail": "withdrawn 300599864400 + pending 0 = 300599864400 vs credited 300599864400"
+      },
+      {
+        "id": "fees.protocol.creditedEqualsWithdrawnPlusPending",
+        "passed": true,
+        "detail": "withdrawn 200399909600 + pending 0 = 200399909600 vs credited 200399909600"
+      },
+      {
+        "id": "fees.noUnaccountedEth",
+        "passed": true,
+        "detail": "0 wei"
+      },
+      {
+        "id": "fees.rewardsContractIsSolvent",
+        "passed": true,
+        "detail": "balance 0 >= totalPending 0"
+      },
+      {
+        "id": "fees.lifetimeMatchesEvents",
+        "passed": true,
+        "detail": "lifetimeDistributed 1001999548000 vs summed events 1001999548000"
+      }
+    ]
+  },
+  "supplyReconciliation": {
+    "totalSupply": "1000000000000000000000000000",
+    "lockedInPool": "999601544770340127288452187",
+    "burned": "17786",
+    "holders": [
+      {
+        "address": "0x2be87aD70Cf11EA294d7c42044b5b8277A3E4874",
+        "balance": "795456757487108587460",
+        "classification": "external"
+      },
+      {
+        "address": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+        "balance": "397659772902385602942567",
+        "classification": "controlled"
+      }
+    ],
+    "exact": true
+  },
+  "feeAccounting": {
+    "lpFeeNativeWei": "2504998870000",
+    "lpFeeTokenWei": "0",
+    "attributedToVaultWei": "0",
+    "claimedTotalWei": "1001999548000",
+    "creditedWei": {
+      "creator": "500999774000",
+      "launchpadOwner": "300599864400",
+      "protocol": "200399909600"
+    },
+    "withdrawnWei": {
+      "creator": "500999774000",
+      "launchpadOwner": "300599864400",
+      "protocol": "200399909600"
+    },
+    "pendingWei": {
+      "creator": "0",
+      "launchpadOwner": "0",
+      "protocol": "0"
+    },
+    "unaccountedWei": "0",
+    "exact": true
+  },
+  "trading": {
+    "buys": 2,
+    "traders": [
+      {
+        "address": "0x2be87aD70Cf11EA294d7c42044b5b8277A3E4874",
+        "classification": "external",
+        "tokensReceived": "795456757487108587460"
+      },
+      {
+        "address": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+        "classification": "controlled",
+        "tokensReceived": "397659772902385602942567"
+      }
+    ]
+  },
+  "reconciledAtBlock": 62081910,
+  "notes": [
+    "This is the frozen record of the first and only mainnet canary. Do not edit it.",
+    "Deployed-contract assumptions must not change silently: test/product/BaselineFrozen.test.js pins this file by content hash and fails if any address, role or code hash moves.",
+    "An unrelated address (0x2be87aD70Cf11EA294d7c42044b5b8277A3E4874) bought 795.456757 CANARY five blocks after launch. We did not solicit, seed or promote it. It is PERMISSIONLESS THIRD-PARTY ACTIVITY, almost certainly an automated launch sniper reacting to a new v4 pool.",
+    "That trade is NOT evidence of organic demand, product-market fit, or a real user validating anything. It proves only that the pool is reachable and that fee capture works on volume we did not create. It must never be cited as user validation.",
+    "The canary signing keys for tokenCreator and launchpadOwner are RETAINED, not rotated. Their attribution is immutable and they may receive future CANARY rewards. See npm run custody:check.",
+    "supplyReconciliation and feeAccounting are a snapshot at reconciledAtBlock. Re-running the verifier later may legitimately show MORE trades and MORE fees; it must still reconcile.",
+    "ETH paid into the pool by buyers is exchanged for tokens. It is NOT revenue. Only the fee capture in feeAccounting is revenue.",
+    "The primary run record is contracts/canary-report.json and reports 2 of 52 assertions as FAILED. Those are preserved verbatim. The reconciliation is a SEPARATE additive document: baseline/canary-2026-09-13.postmortem.json."
+  ]
+}

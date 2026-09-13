@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "kind": "postmortem",
+  "subject": "mainnet canary 2026-09-13",
+  "primaryEvidence": "contracts/canary-report.json",
+  "frozen": true,
+  "purpose": [
+    "The primary record (canary-report.json) reports 2 of 52 assertions as FAILED. Those failures",
+    "are preserved verbatim and are NOT rewritten to pass. This file is a separate, additive",
+    "reconciliation explaining what each failure meant and what the evidence actually shows.",
+    "An assertion that was wrong is corrected HERE; the record of it having failed stays THERE."
+  ],
+  "rootCause": {
+    "summary": "Both assertions encoded a false premise: that we would be the pool's only trader.",
+    "event": {
+      "description": "An unrelated address bought CANARY from the public pool 5 blocks after launch.",
+      "address": "0x2be87aD70Cf11EA294d7c42044b5b8277A3E4874",
+      "launchBlock": 62053834,
+      "tradeBlock": 62053839,
+      "tokensReceived": "795456757487108587460",
+      "impliedNativeVolumeWei": "1999548000000",
+      "solicited": false,
+      "classification": "permissionless third-party activity",
+      "explicitlyNotEvidenceOf": [
+        "organic user demand",
+        "product-market fit",
+        "a real creator or trader validating the product",
+        "anything about whether a human would choose to use this"
+      ],
+      "interpretation": [
+        "The pool is permissionless, so anyone or anything may trade it the moment it exists.",
+        "This was almost certainly automated: a launch-sniping bot reacting to a new v4 pool.",
+        "It proves the pool is REACHABLE and that fee capture works on volume we did not create.",
+        "It proves NOTHING about demand, and must never be cited as user validation."
+      ],
+      "impliedNativeVolumeEth": "0.000001999548"
+    }
+  },
+  "failedAssertions": [
+    {
+      "originalLabel": "every unit is locked liquidity or burned",
+      "originalDetail": "pool 999999204543242512891394754 + burned 17786 = 999999204543242512891412540 of 1000000000000000000000000000",
+      "verdict": "ASSERTION WRONG \u2014 protocol correct",
+      "why": [
+        "The assertion required pool + burned == totalSupply, which is only true while no token has",
+        "ever left the pool. 795.456757 CANARY had already been bought by the third party above.",
+        "Supply was never lost or unaccounted; it was held by a trader the assertion did not model."
+      ],
+      "correctInvariant": "lockedInPool + burned + sum(all discovered holders) == totalSupply",
+      "reconciliation": {
+        "totalSupply": "1000000000000000000000000000",
+        "lockedInPool": "999601544770340127288452187",
+        "burned": "17786",
+        "holders": [
+          {
+            "address": "0x2be87aD70Cf11EA294d7c42044b5b8277A3E4874",
+            "balance": "795456757487108587460",
+            "classification": "external"
+          },
+          {
+            "address": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+            "balance": "397659772902385602942567",
+            "classification": "controlled"
+          }
+        ],
+        "sum": "1000000000000000000000000000",
+        "exact": true
+      },
+      "fixedIn": "scripts/lib/launchVerifier.cjs discovers holders from Transfer logs rather than assuming them.",
+      "regressionTest": "test/fork/VerifyLaunch.fork.test.js \u2014 'a third party trades BEFORE we verify'"
+    },
+    {
+      "originalLabel": "LP fee is within 1 wei of nominal 25 bps",
+      "originalDetail": "delta 4998870000",
+      "verdict": "ASSERTION WRONG \u2014 protocol correct",
+      "why": [
+        "The assertion compared the TOTAL collected LP fee against 25 bps of OUR buy alone.",
+        "collectFees settles the position's accrued fees from every trade, not only ours.",
+        "The excess is exactly 25 bps of the third party's volume, so the pool charged correctly."
+      ],
+      "reconciliation": {
+        "totalLpFeeCollectedWei": "2504998870000",
+        "ourBuyWei": "1000000000000000",
+        "expectedFromOurBuyWei": "2500000000000",
+        "residualWei": "4998870000",
+        "impliedThirdPartyVolumeWei": "1999548000000",
+        "impliedThirdPartyVolumeEth": "0.000001999548",
+        "exact": true
+      },
+      "fixedIn": "The verifier reconciles fees against ALL collected events and never against a single assumed trade.",
+      "regressionTest": "test/fork/VerifyLaunch.fork.test.js \u2014 'fee reconciliation with MULTIPLE buyers'"
+    }
+  ],
+  "unaffectedFindings": [
+    "The 50 / 30 / 20 split applied correctly to the third party's fee as well as ours.",
+    "Every wei still reconciled: 1001999548000 claimed == 500999774000 + 300599864400 + 200399909600.",
+    "All three parties withdrew exactly what they were owed; unaccountedBalance was 0.",
+    "Liquidity remained permanently locked throughout; the position is owned by Uniswap's FeeSplitter.",
+    "verifyMarketLaunch(token) remained true."
+  ],
+  "operationalFailures": [
+    {
+      "description": "Base fee rose between fee estimation and transaction send.",
+      "error": "max fee per gas less than block base fee: maxFeePerGas: 117700593, baseFee: 131992000",
+      "impact": "Run aborted mid Phase 1. One funding transfer had landed.",
+      "fixedIn": "scripts/lib/canaryPlan.cjs capFor() \u2014 explicit cap from the live base fee.",
+      "regressionTest": "test/product/CanaryPlan.test.js \u2014 'base fee rose between estimation and send'"
+    },
+    {
+      "description": "Signing wallet funded at the expected price could not afford its own transaction, because a node computes gas allowance as balance / maxFeePerGas.",
+      "error": "gas required exceeds allowance (1290580)",
+      "impact": "Run aborted at Phase 4. Stack and pad were already deployed.",
+      "fixedIn": "scripts/lib/canaryPlan.cjs fundingAmountFor() \u2014 funds at the cap with headroom.",
+      "regressionTest": "test/product/CanaryPlan.test.js \u2014 'signer could not afford its own transaction under maxFeePerGas'"
+    },
+    {
+      "description": "An interrupted run had no resume path and would have redeployed a second stack.",
+      "impact": "Potential duplicate contracts and wasted ETH; avoided by adding resume before re-running.",
+      "fixedIn": "scripts/lib/canaryPlan.cjs resumePlan() plus attach-instead-of-deploy in canaryExecute.cjs. A PARTIAL stack is refused outright.",
+      "regressionTest": "test/product/CanaryPlan.test.js \u2014 'interrupted deployment and partially completed stack'"
+    },
+    {
+      "description": "The budget guard counted phases an interrupted run had already paid for.",
+      "impact": "Would have aborted a resumable run as unaffordable.",
+      "fixedIn": "scripts/lib/canaryPlan.cjs remainingCost() excludes completed phases.",
+      "regressionTest": "test/product/CanaryPlan.test.js \u2014 'resume-aware budget accounting'"
+    }
+  ],
+  "custody": {
+    "note": "The canary pad-owner and token-creator keys are RETAINED, not rotated or deleted. Their attribution is immutable on chain and they may receive future CANARY fee rewards.",
+    "padOwner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "tokenCreator": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+    "protocolTreasury": "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef",
+    "keysVerifiedPresent": true,
+    "checkCommand": "npm run custody:check"
+  },
+  "conclusion": [
+    "No protocol defect was found. Both assertion failures were defects in the canary's own",
+    "expectations, and both are now structurally impossible to repeat because the verifier",
+    "discovers holders and reconciles fees from events instead of assuming a single trader.",
+    "The economic semantics proven on 2026-09-13 are unchanged and are preserved as the baseline."
+  ]
+}

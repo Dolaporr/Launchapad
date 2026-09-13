@@ -1,0 +1,286 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://launchpad.family/schema/launch-record-1.json",
+  "title": "Launchpad Family launch record",
+  "description": "Everything needed to independently re-audit one market launch from chain state alone. A record is EVIDENCE, not configuration: nothing here may be trusted without re-verification, and scripts/verifyLaunch.cjs reconstructs every field from chain.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "chainId", "contracts", "token", "pool", "roles",
+    "launchTransaction", "dependencies", "verification", "feeAccounting", "reconciledAtBlock"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "label": {
+      "type": "string",
+      "description": "Human label for this record, e.g. 'mainnet canary 2026-09-13'. Never load-bearing."
+    },
+    "frozen": {
+      "type": "boolean",
+      "description": "True for a baseline record that must not change. A frozen record's integrity is enforced by test/product/BaselineFrozen.test.js."
+    },
+    "chainId": { "type": "integer", "description": "4663 is Robinhood Chain mainnet." },
+
+    "contracts": {
+      "type": "object",
+      "description": "Our own deployed contracts.",
+      "required": ["LaunchpadFactory", "LaunchpadFamilyLauncher", "LaunchpadRewards"],
+      "additionalProperties": false,
+      "properties": {
+        "LaunchpadFactory": { "$ref": "#/definitions/address" },
+        "LaunchpadFamilyLauncher": { "$ref": "#/definitions/address" },
+        "LaunchpadRewards": { "$ref": "#/definitions/address" },
+        "codeHashes": {
+          "type": "object",
+          "description": "keccak256 of deployed runtime bytecode, so a swapped contract is detectable.",
+          "additionalProperties": { "$ref": "#/definitions/hash32" }
+        }
+      }
+    },
+
+    "launchpad": {
+      "type": "object",
+      "required": ["address", "owner", "policy"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "$ref": "#/definitions/address" },
+        "owner": { "$ref": "#/definitions/address" },
+        "policy": { "type": "integer", "description": "0 = OWNER_ONLY, 1 = OPEN." },
+        "name": { "type": "string" }
+      }
+    },
+
+    "token": {
+      "type": "object",
+      "required": ["address", "name", "symbol", "decimals", "totalSupply"],
+      "additionalProperties": false,
+      "properties": {
+        "address": { "$ref": "#/definitions/address" },
+        "name": { "type": "string" },
+        "symbol": { "type": "string" },
+        "decimals": { "type": "integer" },
+        "totalSupply": { "$ref": "#/definitions/uint256" },
+        "marketLauncher": {
+          "$ref": "#/definitions/address",
+          "description": "The token's own immutable claim. Half of the two-way binding; forgeable alone."
+        }
+      }
+    },
+
+    "pool": {
+      "type": "object",
+      "description": "The Uniswap v4 pool and the locked LP position.",
+      "required": ["poolId", "positionTokenId", "currency0", "currency1", "fee", "tickSpacing", "hooks"],
+      "additionalProperties": false,
+      "properties": {
+        "poolId": { "$ref": "#/definitions/hash32" },
+        "positionTokenId": { "$ref": "#/definitions/uint256" },
+        "currency0": { "$ref": "#/definitions/address" },
+        "currency1": { "$ref": "#/definitions/address" },
+        "fee": { "type": "integer" },
+        "tickSpacing": { "type": "integer" },
+        "hooks": { "$ref": "#/definitions/address" },
+        "positionOwner": {
+          "$ref": "#/definitions/address",
+          "description": "Must be Uniswap's FeeSplitter for liquidity to be permanently locked."
+        },
+        "beneficiaryOwner": {
+          "$ref": "#/definitions/address",
+          "description": "Owner of the beneficiary ERC-721. Must be our LaunchpadRewards."
+        }
+      }
+    },
+
+    "roles": {
+      "type": "object",
+      "description": "Immutable attribution, written once at launch.",
+      "required": ["tokenCreator", "launchpadOwner", "protocolTreasury"],
+      "additionalProperties": false,
+      "properties": {
+        "tokenCreator": { "$ref": "#/definitions/address" },
+        "launchpadOwner": { "$ref": "#/definitions/address" },
+        "protocolTreasury": { "$ref": "#/definitions/address" },
+        "deployer": { "$ref": "#/definitions/address" }
+      }
+    },
+
+    "splitBps": {
+      "type": "object",
+      "description": "The immutable split, read from contract constants. Recorded so drift is detectable.",
+      "required": ["creator", "launchpadOwner", "protocol"],
+      "additionalProperties": false,
+      "properties": {
+        "creator": { "type": "integer" },
+        "launchpadOwner": { "type": "integer" },
+        "protocol": { "type": "integer" }
+      }
+    },
+
+    "launchTransaction": {
+      "type": "object",
+      "required": ["hash", "block"],
+      "additionalProperties": false,
+      "properties": {
+        "hash": { "$ref": "#/definitions/hash32" },
+        "block": { "type": "integer" },
+        "timestamp": { "type": "integer" }
+      }
+    },
+
+    "dependencies": {
+      "type": "object",
+      "description": "Pinned external Uniswap contracts and their runtime codehashes at launch time.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["address", "codeHash"],
+        "additionalProperties": false,
+        "properties": {
+          "address": { "$ref": "#/definitions/address" },
+          "codeHash": { "$ref": "#/definitions/hash32" },
+          "registryStatus": { "type": "string" }
+        }
+      }
+    },
+
+    "verification": {
+      "type": "object",
+      "description": "Outcome of the last deterministic verification run.",
+      "required": ["status", "checks"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["VERIFIED", "FAILED", "UNVERIFIED"] },
+        "verifiedAt": { "type": "string" },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "passed"],
+            "additionalProperties": true,
+            "properties": {
+              "id": { "type": "string" },
+              "passed": { "type": "boolean" },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "supplyReconciliation": {
+      "type": "object",
+      "description": "Every base unit of supply, attributed to a location. MUST sum to totalSupply exactly.",
+      "required": ["totalSupply", "lockedInPool", "burned", "holders", "exact"],
+      "additionalProperties": false,
+      "properties": {
+        "totalSupply": { "$ref": "#/definitions/uint256" },
+        "lockedInPool": { "$ref": "#/definitions/uint256" },
+        "burned": { "$ref": "#/definitions/uint256" },
+        "holders": {
+          "type": "array",
+          "description": "Every non-pool, non-burn holder discovered from Transfer logs.",
+          "items": {
+            "type": "object",
+            "required": ["address", "balance"],
+            "additionalProperties": false,
+            "properties": {
+              "address": { "$ref": "#/definitions/address" },
+              "balance": { "$ref": "#/definitions/uint256" },
+              "classification": { "enum": ["controlled", "external", "unknown"] }
+            }
+          }
+        },
+        "exact": { "type": "boolean" }
+      }
+    },
+
+    "feeAccounting": {
+      "type": "object",
+      "description": "Every wei of the creator-fee stream. MUST balance exactly.",
+      "required": ["claimedTotalWei", "creditedWei", "withdrawnWei", "pendingWei", "exact"],
+      "additionalProperties": false,
+      "properties": {
+        "lpFeeNativeWei": { "$ref": "#/definitions/uint256" },
+        "lpFeeTokenWei": { "$ref": "#/definitions/uint256" },
+        "attributedToVaultWei": { "$ref": "#/definitions/uint256" },
+        "claimedTotalWei": { "$ref": "#/definitions/uint256" },
+        "creditedWei": {
+          "type": "object",
+          "required": ["creator", "launchpadOwner", "protocol"],
+          "additionalProperties": false,
+          "properties": {
+            "creator": { "$ref": "#/definitions/uint256" },
+            "launchpadOwner": { "$ref": "#/definitions/uint256" },
+            "protocol": { "$ref": "#/definitions/uint256" }
+          }
+        },
+        "withdrawnWei": {
+          "type": "object",
+          "required": ["creator", "launchpadOwner", "protocol"],
+          "additionalProperties": false,
+          "properties": {
+            "creator": { "$ref": "#/definitions/uint256" },
+            "launchpadOwner": { "$ref": "#/definitions/uint256" },
+            "protocol": { "$ref": "#/definitions/uint256" }
+          }
+        },
+        "pendingWei": {
+          "type": "object",
+          "required": ["creator", "launchpadOwner", "protocol"],
+          "additionalProperties": false,
+          "properties": {
+            "creator": { "$ref": "#/definitions/uint256" },
+            "launchpadOwner": { "$ref": "#/definitions/uint256" },
+            "protocol": { "$ref": "#/definitions/uint256" }
+          }
+        },
+        "unaccountedWei": { "$ref": "#/definitions/uint256" },
+        "exact": { "type": "boolean" }
+      }
+    },
+
+    "trading": {
+      "type": "object",
+      "description": "Observed trading. Volume is NOT revenue: only fee capture is revenue.",
+      "additionalProperties": false,
+      "properties": {
+        "buys": { "type": "integer" },
+        "sells": { "type": "integer" },
+        "grossNativeVolumeInWei": {
+          "$ref": "#/definitions/uint256",
+          "description": "ETH paid INTO the pool by buyers. Exchanged for tokens — never revenue."
+        },
+        "controlledNativeVolumeWei": { "$ref": "#/definitions/uint256" },
+        "externalNativeVolumeWei": { "$ref": "#/definitions/uint256" },
+        "traders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["address", "classification"],
+            "additionalProperties": false,
+            "properties": {
+              "address": { "$ref": "#/definitions/address" },
+              "classification": { "enum": ["controlled", "external", "unknown"] },
+              "tokensReceived": { "$ref": "#/definitions/uint256" }
+            }
+          }
+        }
+      }
+    },
+
+    "reconciledAtBlock": {
+      "type": "integer",
+      "description": "Chain height at which the above was true. Re-running later may legitimately show more trades."
+    },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  },
+
+  "definitions": {
+    "address": { "type": "string", "pattern": "^0x[0-9a-fA-F]{40}$" },
+    "hash32": { "type": "string", "pattern": "^0x[0-9a-fA-F]{64}$" },
+    "uint256": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Decimal string. Never a JS number: wei and 18-decimal balances exceed Number.MAX_SAFE_INTEGER."
+    }
+  }
+}

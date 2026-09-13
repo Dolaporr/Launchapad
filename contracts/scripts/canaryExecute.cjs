@@ -18,7 +18,8 @@
  *
  * It never tops up funding. If the balance is short it stops and says so.
  *
- * Writes a full machine-readable record to canary-report.json.
+ * Writes a full machine-readable record to evidence/canary-run-<timestamp>.json.
+ * It never touches canary-report.json, which is the preserved 2026-09-13 evidence.
  */
 const fs = require('fs');
 const path = require('path');
@@ -27,6 +28,7 @@ require('dotenv').config();
 const {
   U, buyThroughUniversalRouter, collectPoolFees, vaultAbi, splitterAbi,
 } = require('./lib/uniswapCanary.cjs');
+const plan = require('./lib/canaryPlan.cjs');
 
 const MAINNET = 4663n;
 const REGISTRY_URL = 'https://developers.uniswap.org/deployments.json';
@@ -73,15 +75,28 @@ function abort(why) {
 }
 function section(t) { console.log(`\n${'='.repeat(78)}\n${t}\n${'='.repeat(78)}`); }
 
+/**
+ * Where this run's record is written.
+ *
+ * NEVER `canary-report.json`. That file is the historical evidence of the 2026-09-13 mainnet
+ * canary, including the two assertions that failed because an external trader entered the pool,
+ * and it must survive untouched. A later run overwriting it would destroy the primary record of
+ * what actually happened, so each run gets its own timestamped file and refuses to clobber one.
+ */
+const REPORT_PATH = (() => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const file = path.join(__dirname, '..', 'evidence', `canary-run-${stamp}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (fs.existsSync(file)) throw new Error(`refusing to overwrite an existing record at ${file}`);
+  return file;
+})();
+
 function writeReport() {
   report.totals = {
     gasUsed: ledgerTotalGas.toString(),
     ethSpentOnGas: hre.ethers.formatEther(ledgerTotalWei),
   };
-  fs.writeFileSync(
-    path.join(__dirname, '..', 'canary-report.json'),
-    `${JSON.stringify(report, null, 2)}\n`,
-  );
+  fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
 }
 
 /** Records a sent transaction in the ledger. */
@@ -142,12 +157,17 @@ async function main() {
     rewards: (process.env.RESUME_REWARDS || '').trim(),
     pad: (process.env.RESUME_PAD || '').trim(),
   };
-  const isResume = Boolean(resume.factory && resume.launcher && resume.rewards && resume.pad);
+  const resumeState = plan.resumePlan(resume);
+  // A PARTIALLY supplied stack is never a valid resume target: attaching to some contracts while
+  // deploying others would silently produce a mismatched system. Abort with the missing pieces.
+  if (resumeState.partial) {
+    abort(`partial resume input — missing ${resumeState.missing.join(', ')}. `
+      + 'Supply all four of RESUME_FACTORY, RESUME_LAUNCHER, RESUME_REWARDS, RESUME_PAD, or none.');
+  }
+  const isResume = resumeState.isResume;
   // Phases already paid for by the interrupted run must not be counted again when checking whether
   // the remaining work is affordable, or the guard aborts on money that has already been spent.
-  const alreadyDone = isResume
-    ? new Set(['fundPadOwner', 'fundTokenCreator', 'deployFactory', 'deployLauncher', 'deployRewards', 'createLaunchpad'])
-    : new Set();
+  const { alreadyDone } = resumeState;
   if (isResume) report.notes.push('Resumed from an interrupted run; the stack and pad were attached, not redeployed.');
 
   // =============================================================================================
@@ -236,19 +256,17 @@ async function main() {
   // transaction was rejected with "max fee per gas less than block base fee". So every transaction
   // now carries an explicit cap computed fresh from the CURRENT base fee, well above it. The cap is
   // only a ceiling — actual cost is base fee plus the tip — so a generous cap costs nothing.
-  const TIP = 10000000n; // 0.01 gwei
   async function baseFee() {
     const b = await provider.getBlock('latest');
     return b.baseFeePerGas ?? 0n;
   }
-  /** Per-transaction overrides: a cap 4x the live base fee absorbs mid-sequence spikes. */
+  /** Per-transaction overrides. See scripts/lib/canaryPlan.cjs for why the cap exists. */
   async function fees() {
-    const base = await baseFee();
-    return { maxFeePerGas: base * 4n + TIP, maxPriorityFeePerGas: TIP };
+    return { maxFeePerGas: plan.capFor(await baseFee()), maxPriorityFeePerGas: plan.TIP };
   }
   /** The price used for BUDGETING — what we expect to pay, not the cap. */
   async function expectedPrice() {
-    return (await baseFee()) * 2n + TIP;
+    return plan.expectedPriceFor(await baseFee());
   }
 
   const gasPrice = await expectedPrice();
@@ -298,16 +316,15 @@ async function main() {
     // its own transaction once the 4x cap is applied — which is exactly how the first live attempt
     // failed. 2x the needed gas at the cap gives real headroom.
     const capNow = (await fees()).maxFeePerGas;
-    const value = needGas * capNow * 2n;
     // Idempotent: a wallet already carrying enough is left alone, so an interrupted run can be
     // resumed without paying twice. This is the same canary continuing, not a second one.
     const have = await provider.getBalance(to);
-    if (have >= value) {
+    const send = plan.topUpFor(have, needGas, capNow);
+    if (send === 0n) {
       console.log(`  ${name} -> ${to} SKIPPED, already holds ${ethers.formatEther(have)} ETH`);
       report.notes.push(`${name} skipped: wallet already funded with ${ethers.formatEther(have)} ETH`);
       continue;
     }
-    const send = value - have;
     console.log(`  ${name} -> ${to} with ${ethers.formatEther(send)} ETH`);
     await record(name, await (await deployer.sendTransaction({ to, value: send, ...(await fees()) })).wait(), send);
   }
@@ -570,7 +587,7 @@ async function main() {
   console.log(`\n${'='.repeat(78)}`);
   console.log(`total gas ${ledgerTotalGas}, ETH spent on gas ${ethers.formatEther(ledgerTotalWei)}`);
   console.log(report.result);
-  console.log('report written to canary-report.json');
+  console.log(`report written to ${REPORT_PATH}`);
   console.log('='.repeat(78));
   if (failed.length) process.exitCode = 1;
 }

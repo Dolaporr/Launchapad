@@ -17,7 +17,11 @@
     "model:economics": "node scripts/modelEconomics.cjs",
     "deploy:market": "hardhat run scripts/deployMarket.cjs --network robinhood",
     "canary:preflight": "hardhat run scripts/canaryPreflight.cjs --network robinhood",
-    "canary:rehearse": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat run scripts/canaryRehearsal.cjs"
+    "canary:rehearse": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat run scripts/canaryRehearsal.cjs",
+    "test:verify": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat test test/fork/VerifyLaunch.fork.test.js",
+    "verify:launch": "hardhat run scripts/verifyLaunch.cjs --network robinhood",
+    "verify:baseline": "hardhat run scripts/verifyLaunch.cjs --network robinhood",
+    "custody:check": "node scripts/custodyCheck.cjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
