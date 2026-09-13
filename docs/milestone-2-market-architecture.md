@@ -1,7 +1,8 @@
 # Milestone 2 — Market Architecture Memo
 
-**Status:** research + proof-of-concept complete. Awaiting an economic decision. No production
-contracts written, nothing deployed, no mainnet transaction sent.
+**Status:** IMPLEMENTED AND PROVEN ON A MAINNET FORK. Economics approved at 50/30/20.
+Production contracts written and tested; nothing deployed, no mainnet transaction sent.
+See "Implementation" at the end for what was built and what the fork tests prove.
 **Date of on-chain readings:** 2026-09-12. Every address below was read from chain or from
 Uniswap's published deployment registry, never from memory.
 
@@ -365,3 +366,93 @@ values (50/30/20) were chosen to make arithmetic readable, **not** as a proposal
 
 Not started, as instructed: DEX integration beyond this research, bonding curves, creator-reward
 production contracts, fee enforcement changes, and the NVDA buyer.
+
+
+---
+
+# Implementation (approved 2026-09-13)
+
+## Approved economics — and what they actually mean
+
+**50% token creator / 30% launchpad owner / 20% Launchpad.family**, fixed in `LaunchpadRewards`
+bytecode with no setter.
+
+These are shares **of the Uniswap creator-fee stream only**. That stream is 40% of the ETH side of
+a 25 bps LP fee. Stated as effective rates:
+
+| | On BUY volume (ETH in) | On SELL volume (token in) |
+|---|---|---|
+| Pool LP fee | 25 bps | 25 bps |
+| Uniswap keeps | 15 bps | **25 bps (all of it)** |
+| Reaches our stream | **10 bps** | **0 bps** |
+| → token creator (50%) | **5 bps** | 0 |
+| → launchpad owner (30%) | **3 bps** | 0 |
+| → Launchpad.family (20%) | **2 bps** | 0 |
+
+**Sells earn us nothing.** A v4 pool charges its fee in the input currency, and Uniswap takes 100%
+of the token side. Any projection that multiplies *total* volume by 10 bps is roughly 2x too high.
+
+At a 50/50 buy-sell mix the protocol earns **1 bp of total traded volume** — $1,000,000 of volume
+is **$100** of protocol revenue. Run `npm run model:economics` for the full table; the figures are
+locked to the contracts by `test/market/Economics.test.js`.
+
+## Contracts built
+
+| Contract | Privileged capability |
+|---|---|
+| `LaunchpadRewards` | none that moves value; `registrar` may attribute a position once, never change one |
+| `LaunchpadFamilyLauncher` | none — no owner, no pause, no allowlist |
+| `LaunchToken` (modified) | none; supply now fixed at 1,000,000,000 × 18 decimals |
+| `UniswapRobinhood` | library of pinned mainnet addresses |
+
+Design points that were requirements:
+
+- **The registrar is the launcher contract, enforced in bytecode.** `LaunchpadRewards` rejects a
+  registrar with no code, so attribution can only ever happen inside a launch transaction.
+- **Deployment order is forced** by that check: launcher first (pointing at the address rewards
+  will occupy), rewards second. A mis-wired pair cannot silently operate — the first launch
+  reverts. `isCorrectlyWired()` lets an operator confirm before spending one.
+- **Attribution is write-once.** No reassign, redirect or update path exists for anyone.
+- **Addresses are pinned.** On chain 4663 the constructor rejects any Uniswap address that is not
+  the official one, so a production deployment cannot point at a substitute.
+- **The launch is one atomic call.** `LiquidityLauncher` is permissionless and holds tokens
+  between deposit and distribute; splitting those steps across transactions would let someone
+  hijack the launch with their own `feeBeneficiary`.
+- **The launcher verifies the outcome** rather than trusting it: after the launch it checks the
+  beneficiary NFT actually landed on `LaunchpadRewards`, and reverts if not.
+- **Pull-based payouts**, so one broken recipient cannot block the other two.
+
+## Supply is no longer configurable
+
+`LaunchToken` has no supply argument. Uniswap's strategy reverts on anything but 1e9 × 18, so a
+supply parameter would have been a lie in the ABI. `Launchpad.launchToken(name, symbol)` lost its
+third argument, and the web app shows supply as a disabled, explained field.
+
+## What the fork tests prove
+
+`npm run test:fork` — **14 tests against the real mainnet Liquidity Launchpad** (chain 4663):
+
+- a real Uniswap v4 pool is created, and the LP position ends up owned by the **real FeeSplitter**
+  (liquidity permanently locked — nobody can withdraw it);
+- the beneficiary NFT is issued to **our** `LaunchpadRewards`;
+- the entire supply goes into the pool — creator, pad owner, launcher and rewards all hold zero;
+- attribution records creator / pad owner / launchpad / token correctly;
+- `OWNER_ONLY` is still enforced against a real launch;
+- fees injected at Uniswap's own FeeSplitter→vault boundary are claimed from the **real vault**
+  and split exactly 50/30/20, and all three parties withdraw real ETH;
+- a second launch from a different creator is serviced independently by the same singleton.
+
+**What they do NOT prove:** fees are injected by impersonating the real FeeSplitter rather than
+generated by executing swaps. The claim and split run against real vault code; the rate at which a
+new pool actually accrues fees is not measured.
+
+## Test counts
+
+- `172 passing` in the hermetic suite (was 124), including 22 adversarial tests.
+- `14 passing` on the mainnet fork (skipped automatically without `FORK_RPC`, so CI stays hermetic).
+- `37/37` browser end-to-end checks still pass after the fixed-supply change.
+
+## Still not done, deliberately
+
+No mainnet transaction. No DEX/bonding-curve work of our own. No v4 hook. No NVDA buyer. Fee
+percentages are not configurable and per-pad rates do not exist in v1.

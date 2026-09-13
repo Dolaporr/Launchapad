@@ -57,8 +57,6 @@ contract Launchpad {
     uint256 public constant MAX_METADATA_URI_LENGTH = 256;
     uint256 public constant MAX_TOKEN_NAME_LENGTH = 64;
     uint256 public constant MAX_TOKEN_SYMBOL_LENGTH = 11;
-    /// @notice Upper bound on whole tokens per launch (before 18-decimal scaling).
-    uint256 public constant MAX_WHOLE_TOKEN_SUPPLY = 1_000_000_000_000;
 
     address public immutable owner;
     address public immutable feeRouter;
@@ -78,7 +76,6 @@ contract Launchpad {
     error ZeroAddress();
     error NotOwner();
     error InvalidMetadata();
-    error InvalidSupply();
 
     constructor(
         address owner_,
@@ -108,9 +105,14 @@ contract Launchpad {
     }
 
     /// @notice Deploy a fixed-supply ERC-20 under this launchpad.
+    /// @dev Supply is ALWAYS 1,000,000,000 x 18 decimals — see `LaunchToken`. It is not an
+    ///      argument because Uniswap's InstantLaunchStrategy rejects any other supply, and a
+    ///      parameter the live path cannot honour would be a lie in the ABI.
     /// @dev The entire supply is minted to `msg.sender`. Under `Open` that is the third-party
     ///      creator, not the pad owner: the pad owner receives no tokens and has no claim on them.
-    function launchToken(string calldata tokenName, string calldata symbol, uint256 wholeTokenSupply)
+    ///      This is the DIRECT path, which creates no market. To launch into a real Uniswap v4
+    ///      pool, go through `LaunchpadFamilyLauncher` instead.
+    function launchToken(string calldata tokenName, string calldata symbol)
         external
         returns (address token)
     {
@@ -120,10 +122,12 @@ contract Launchpad {
         uint256 symbolLength = bytes(symbol).length;
         if (nameLength == 0 || nameLength > MAX_TOKEN_NAME_LENGTH) revert InvalidMetadata();
         if (symbolLength == 0 || symbolLength > MAX_TOKEN_SYMBOL_LENGTH) revert InvalidMetadata();
-        if (wholeTokenSupply == 0 || wholeTokenSupply > MAX_WHOLE_TOKEN_SUPPLY) revert InvalidSupply();
 
-        uint256 supply = wholeTokenSupply * 1e18;
-        token = address(new LaunchToken(tokenName, symbol, supply, msg.sender));
+        // Read the supply back off the deployed token rather than restating the constant here,
+        // so the event can never disagree with what was actually minted.
+        LaunchToken deployed = new LaunchToken(tokenName, symbol, msg.sender);
+        uint256 supply = deployed.totalSupply();
+        token = address(deployed);
         tokens.push(token);
         _tokensByCreator[msg.sender].push(token);
 

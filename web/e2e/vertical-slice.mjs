@@ -174,7 +174,6 @@ await page.click('#launchTokenBtn');
 await page.waitForTimeout(400);
 await page.fill('#launchTokenForm input[name="name"]', 'Second Wallet Coin');
 await page.fill('#launchTokenForm input[name="symbol"]', 'swc');
-await page.fill('#launchTokenForm input[name="supply"]', '250000');
 await page.click('#launchTokenForm button[type="submit"]');
 await page.waitForSelector('.tx-banner.success', { timeout: 60000 });
 
@@ -191,7 +190,7 @@ console.log('\n=== 6. Token appears under the pad, from on-chain reads ===');
 await page.waitForTimeout(1500);
 const tableText = await page.locator('.token-table').innerText();
 check('token row rendered', /SWC/.test(tableText), tableText.replace(/\s+/g, ' ').trim());
-check('supply rendered from chain', /250,000/.test(tableText));
+check('fixed 1,000,000,000 supply rendered from chain', /1,000,000,000/.test(tableText));
 check('token count incremented on chain', /\b1\b/.test(await page.locator('.stats').innerText()));
 
 // Independent verification: ask the chain directly, bypassing the UI entirely.
@@ -213,7 +212,7 @@ const onChain = await page.evaluate(async ({ pad, token, owner, creator }) => {
   };
 }, { pad: padAddress, token: tokenAddress, owner: WALLET_A, creator: WALLET_B });
 
-const expectedSupply = (250000n * 10n ** 18n).toString();
+const expectedSupply = (1000000000n * 10n ** 18n).toString(); // fixed by Uniswap's requirement
 check('chain says pad is owned by wallet A', onChain.padOwner.toLowerCase() === WALLET_A.toLowerCase());
 check('chain says policy is Open (1)', onChain.padPolicy === 1);
 check('chain says pad holds 1 token', onChain.padTokenCount === 1);

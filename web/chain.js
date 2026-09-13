@@ -31,7 +31,7 @@ export const ABI = {
   // Function selectors (first 4 bytes of keccak256 of the signature).
   SELECTORS: {
     'createLaunchpad(string,string,uint8,uint8)': '0x533f8cfb',
-    'launchToken(string,string,uint256)': '0x4bf2dcd8',
+    'launchToken(string,string)': '0x8f84f199',
     'count()': '0x06661abd',
     'launchpadsPage(uint256,uint256)': '0xec7bccd5',
     'launchpadsOf(address)': '0xaf9607b9',
@@ -376,11 +376,14 @@ export async function createLaunchpadTx({ from, factory, name, metadataURI, pres
   return sendTransaction({ from, to: factory, data });
 }
 
-export async function launchTokenTx({ from, pad, name, symbol, wholeSupply }) {
-  const data = encodeCall('launchToken(string,string,uint256)', [
+/// Supply is not a parameter: every LaunchToken is fixed at 1,000,000,000 x 18 decimals,
+/// because Uniswap's InstantLaunchStrategy rejects anything else.
+export const FIXED_TOKEN_SUPPLY = 1000000000n;
+
+export async function launchTokenTx({ from, pad, name, symbol }) {
+  const data = encodeCall('launchToken(string,string)', [
     { type: 'string', value: name },
     { type: 'string', value: symbol },
-    { type: 'uint', value: wholeSupply },
   ]);
   return sendTransaction({ from, to: pad, data });
 }

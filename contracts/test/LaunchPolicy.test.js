@@ -30,17 +30,17 @@ describe('LaunchPolicy', () => {
       expect(await pad.canLaunch(stranger.address)).to.equal(true);
       expect(await pad.canLaunch(padOwner.address)).to.equal(true);
 
-      await expect(pad.connect(stranger).launchToken('Stranger Coin', 'STRG', 1_000_000n))
+      await expect(pad.connect(stranger).launchToken('Stranger Coin', 'STRG'))
         .to.emit(pad, 'TokenLaunched');
       expect(await pad.tokenCount()).to.equal(1);
     });
 
     it('gives the entire supply to the token creator, not the pad owner', async () => {
       const { pad, stranger, padOwner } = await loadFixture(openPad);
-      await pad.connect(stranger).launchToken('Stranger Coin', 'STRG', 1_000_000n);
+      await pad.connect(stranger).launchToken('Stranger Coin', 'STRG');
 
       const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
-      const supply = ethers.parseEther('1000000');
+      const supply = ethers.parseEther('1000000000');
 
       expect(await token.totalSupply()).to.equal(supply);
       expect(await token.balanceOf(stranger.address)).to.equal(supply);
@@ -50,7 +50,7 @@ describe('LaunchPolicy', () => {
 
     it('gives the pad owner no power over a token launched by someone else', async () => {
       const { pad, stranger, padOwner } = await loadFixture(openPad);
-      await pad.connect(stranger).launchToken('Stranger Coin', 'STRG', 1_000n);
+      await pad.connect(stranger).launchToken('Stranger Coin', 'STRG');
       const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
 
       // No seize path exists: the owner has no allowance and no admin function.
@@ -65,7 +65,7 @@ describe('LaunchPolicy', () => {
       const creators = [padOwner, stranger, protocol, reserveReceiver];
 
       for (const [i, creator] of creators.entries()) {
-        await pad.connect(creator).launchToken(`Token ${i}`, `T${i}`, 1000n);
+        await pad.connect(creator).launchToken(`Token ${i}`, `T${i}`);
       }
 
       expect(await pad.tokenCount()).to.equal(4);
@@ -73,13 +73,13 @@ describe('LaunchPolicy', () => {
         expect(await pad.tokenCountOf(creator.address)).to.equal(1);
         const [tokenAddress] = await pad.tokensOf(creator.address);
         const token = await ethers.getContractAt('LaunchToken', tokenAddress);
-        expect(await token.balanceOf(creator.address)).to.equal(ethers.parseEther('1000'));
+        expect(await token.balanceOf(creator.address)).to.equal(ethers.parseEther('1000000000'));
       }
     });
 
     it('records the creator in the event so an indexer can attribute launches', async () => {
       const { pad, stranger } = await loadFixture(openPad);
-      const receipt = await (await pad.connect(stranger).launchToken('S', 'S', 1n)).wait();
+      const receipt = await (await pad.connect(stranger).launchToken('S', 'S')).wait();
       const event = receipt.logs
         .map((log) => { try { return pad.interface.parseLog(log); } catch { return null; } })
         .find((parsed) => parsed && parsed.name === 'TokenLaunched');
@@ -87,16 +87,19 @@ describe('LaunchPolicy', () => {
       expect(event.args.creator).to.equal(stranger.address);
     });
 
-    it('still enforces metadata and supply bounds for third-party creators', async () => {
+    it('still enforces metadata bounds for third-party creators', async () => {
       const { pad, stranger } = await loadFixture(openPad);
-      await expect(pad.connect(stranger).launchToken('', 'SYM', 1n))
+      await expect(pad.connect(stranger).launchToken('', 'SYM'))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-      await expect(pad.connect(stranger).launchToken('Name', 'x'.repeat(12), 1n))
+      await expect(pad.connect(stranger).launchToken('Name', 'x'.repeat(12)))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-      await expect(pad.connect(stranger).launchToken('Name', 'SYM', 0n))
-        .to.be.revertedWithCustomError(pad, 'InvalidSupply');
-      await expect(pad.connect(stranger).launchToken('Name', 'SYM', 1_000_000_000_001n))
-        .to.be.revertedWithCustomError(pad, 'InvalidSupply');
+    });
+
+    it('mints the fixed 1B supply regardless of who launches', async () => {
+      const { pad, stranger } = await loadFixture(openPad);
+      await pad.connect(stranger).launchToken('Fixed', 'FIX');
+      const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
+      expect(await token.totalSupply()).to.equal(ethers.parseEther('1000000000'));
     });
   });
 
@@ -108,16 +111,16 @@ describe('LaunchPolicy', () => {
       expect(await pad.canLaunch(stranger.address)).to.equal(false);
       expect(await pad.canLaunch(padOwner.address)).to.equal(true);
 
-      await expect(pad.connect(stranger).launchToken('Sneak', 'SNK', 1n))
+      await expect(pad.connect(stranger).launchToken('Sneak', 'SNK'))
         .to.be.revertedWithCustomError(pad, 'NotOwner');
       expect(await pad.tokenCount()).to.equal(0);
     });
 
     it('still lets the owner launch, with supply to the owner', async () => {
       const { pad, padOwner } = await loadFixture(ownerOnlyPad);
-      await pad.connect(padOwner).launchToken('Owner Coin', 'OWN', 500n);
+      await pad.connect(padOwner).launchToken('Owner Coin', 'OWN');
       const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
-      expect(await token.balanceOf(padOwner.address)).to.equal(ethers.parseEther('500'));
+      expect(await token.balanceOf(padOwner.address)).to.equal(ethers.parseEther('1000000000'));
     });
   });
 
@@ -143,8 +146,8 @@ describe('LaunchPolicy', () => {
 
       expect(await open.pad.launchPolicy()).to.equal(BigInt(POLICY.OPEN));
       expect(await closed.pad.launchPolicy()).to.equal(BigInt(POLICY.OWNER_ONLY));
-      await expect(open.pad.connect(stranger).launchToken('A', 'A', 1n)).to.not.be.reverted;
-      await expect(closed.pad.connect(stranger).launchToken('B', 'B', 1n))
+      await expect(open.pad.connect(stranger).launchToken('A', 'A')).to.not.be.reverted;
+      await expect(closed.pad.connect(stranger).launchToken('B', 'B'))
         .to.be.revertedWithCustomError(closed.pad, 'NotOwner');
     });
 
@@ -167,7 +170,7 @@ describe('LaunchPolicy', () => {
       const { factory, padOwner, stranger } = await loadFixture(deployFactory);
       const nvdaOpen = await createPad(factory, padOwner, 'NVDA Open', '', PRESET.NVDA, POLICY.OPEN);
       expect(await nvdaOpen.pad.preset()).to.equal(BigInt(PRESET.NVDA));
-      await expect(nvdaOpen.pad.connect(stranger).launchToken('X', 'X', 1n)).to.not.be.reverted;
+      await expect(nvdaOpen.pad.connect(stranger).launchToken('X', 'X')).to.not.be.reverted;
     });
   });
 });

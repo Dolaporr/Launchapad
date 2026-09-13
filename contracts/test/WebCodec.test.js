@@ -20,7 +20,7 @@ describe('web/chain.js ABI codec', () => {
     'function createLaunchpad(string name, string metadataURI, uint8 preset, uint8 launchPolicy)',
   ]);
   const padIface = new ethers.Interface([
-    'function launchToken(string tokenName, string symbol, uint256 wholeTokenSupply)',
+    'function launchToken(string tokenName, string symbol)',
   ]);
 
   describe('encodeCall', () => {
@@ -48,20 +48,19 @@ describe('web/chain.js ABI codec', () => {
     }
 
     const tokenCases = [
-      ['typical', 'Alpha', 'ALPHA', 1000000n],
-      ['max supply', 'Max', 'MAX', 1000000000000n],
-      ['one wei-token', 'One', 'O', 1n],
-      ['unicode name', 'Tökén 🎯', 'TKN', 42n],
+      ['typical', 'Alpha', 'ALPHA'],
+      ['long name', 'A'.repeat(64), 'MAX'],
+      ['single char', 'One', 'O'],
+      ['unicode name', 'Tökén 🎯', 'TKN'],
     ];
 
-    for (const [label, name, symbol, supply] of tokenCases) {
+    for (const [label, name, symbol] of tokenCases) {
       it(`matches ethers for launchToken — ${label}`, () => {
-        const mine = chain.encodeCall('launchToken(string,string,uint256)', [
+        const mine = chain.encodeCall('launchToken(string,string)', [
           { type: 'string', value: name },
           { type: 'string', value: symbol },
-          { type: 'uint', value: supply },
         ]);
-        const reference = padIface.encodeFunctionData('launchToken', [name, symbol, supply]);
+        const reference = padIface.encodeFunctionData('launchToken', [name, symbol]);
         expect(mine).to.equal(reference);
       });
     }
@@ -163,7 +162,7 @@ describe('web/chain.js ABI codec', () => {
       await (await factory.connect(padOwner).createLaunchpad('Open', '', 0, 1)).wait();
       const pad = await ethers.getContractAt('Launchpad', await factory.launchpads(0));
 
-      const receipt = await (await pad.connect(stranger).launchToken('T', 'T', 1n)).wait();
+      const receipt = await (await pad.connect(stranger).launchToken('T', 'T')).wait();
       const topic = chain.ABI.TOPICS['TokenLaunched(address,address,string,string,uint256)'];
 
       expect(chain.addressFromLog(receipt, topic, 1).toLowerCase())

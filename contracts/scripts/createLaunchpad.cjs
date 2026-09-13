@@ -6,7 +6,7 @@
  *   FACTORY_ADDRESS=0x... PAD_NAME="My Pad" PAD_PRESET=standard \
  *     npx hardhat run scripts/createLaunchpad.cjs --network robinhoodTestnet
  *
- * Optional: TOKEN_NAME, TOKEN_SYMBOL, TOKEN_SUPPLY (whole tokens) to also launch a token.
+ * Optional: TOKEN_NAME, TOKEN_SYMBOL to also launch a token (supply is always 1e9).
  * Set PAD_PRESET=nvda for the NVDA Reserve preset (which accounts for, but does not buy, NVDA).
  * Set PAD_POLICY=open so any wallet can launch through the pad (supply goes to whoever launches);
  * PAD_POLICY=owner_only (the default) restricts launching to the pad owner. Immutable once set.
@@ -95,9 +95,9 @@ async function main() {
 
   if (process.env.TOKEN_NAME && process.env.TOKEN_SYMBOL) {
     const pad = await ethers.getContractAt('Launchpad', padAddress);
-    const supply = BigInt(process.env.TOKEN_SUPPLY || '1000000000');
-    console.log(`Launching token ${process.env.TOKEN_SYMBOL} (${supply} whole tokens) ...`);
-    const tokenTx = await pad.launchToken(process.env.TOKEN_NAME, process.env.TOKEN_SYMBOL, supply);
+    // Supply is fixed at 1,000,000,000 x 18 decimals and is not a parameter any more.
+    console.log(`Launching token ${process.env.TOKEN_SYMBOL} (fixed 1,000,000,000 supply) ...`);
+    const tokenTx = await pad.launchToken(process.env.TOKEN_NAME, process.env.TOKEN_SYMBOL);
     const tokenReceipt = await tokenTx.wait();
     const tokenAddress = await pad.tokens((await pad.tokenCount()) - 1n);
 
@@ -105,7 +105,7 @@ async function main() {
       address: tokenAddress,
       name: process.env.TOKEN_NAME,
       symbol: process.env.TOKEN_SYMBOL,
-      wholeSupply: supply.toString(),
+      wholeSupply: '1000000000',
       launchTx: tokenReceipt.hash,
       links: {
         token: explorerLink(chainId, 'address', tokenAddress),

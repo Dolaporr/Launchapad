@@ -15,7 +15,13 @@ const ALLOWED = {
   LaunchToken: ['transfer', 'approve', 'transferFrom'],
   FeeRouter: ['route', 'withdraw', 'withdrawFor', 'sweepUnaccounted'],
   ReserveVault: ['sweepNonReserve'],
+  // Milestone 2 — Uniswap integration.
+  LaunchpadRewards: ['attributeLaunch', 'collectAndSplit', 'withdraw', 'withdrawFor'],
+  LaunchpadFamilyLauncher: ['launch'],
 };
+
+// Artifacts live under a sub-directory for these.
+const NESTED = { LaunchpadRewards: 'market', LaunchpadFamilyLauncher: 'market' };
 
 // Names that must never appear on a deployable contract, in any form.
 const FORBIDDEN = [
@@ -29,7 +35,10 @@ const ARTIFACTS = path.join(__dirname, '..', 'artifacts', 'contracts');
 const failures = [];
 
 for (const [contractName, allowed] of Object.entries(ALLOWED)) {
-  const artifactPath = path.join(ARTIFACTS, `${contractName}.sol`, `${contractName}.json`);
+  const nested = NESTED[contractName];
+  const artifactPath = nested
+    ? path.join(ARTIFACTS, nested, `${contractName}.sol`, `${contractName}.json`)
+    : path.join(ARTIFACTS, `${contractName}.sol`, `${contractName}.json`);
   if (!fs.existsSync(artifactPath)) {
     failures.push(`${contractName}: artifact not found at ${artifactPath} — did compile run?`);
     continue;

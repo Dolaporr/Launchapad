@@ -217,10 +217,9 @@ async function submitLaunchToken(form) {
   const data = new FormData(form);
   const name = String(data.get('name') || '').trim();
   const symbol = String(data.get('symbol') || '').trim().toUpperCase();
-  const supply = String(data.get('supply') || '').trim();
 
-  if (!name || !symbol || !supply) {
-    setTx({ status: 'error', label: 'Launch token', message: 'Name, symbol and supply are all required.' });
+  if (!name || !symbol) {
+    setTx({ status: 'error', label: 'Launch token', message: 'Name and symbol are both required.' });
     return;
   }
 
@@ -231,7 +230,6 @@ async function submitLaunchToken(form) {
       pad: state.pad.address,
       name,
       symbol,
-      wholeSupply: BigInt(supply),
     });
 
     setTx({
@@ -487,11 +485,12 @@ function tokenModal() {
       <button class="icon-btn" type="button" id="closeTokenModal">×</button></div>
     <div class="field"><label>Name</label><input name="name" maxlength="64" required placeholder="My Token" /></div>
     <div class="field"><label>Symbol</label><input name="symbol" maxlength="11" required placeholder="MTK" /></div>
-    <div class="field"><label>Fixed supply (whole tokens)</label>
-      <input name="supply" type="number" min="1" max="1000000000000" step="1" value="1000000000" required /></div>
-    <div class="notice">This sends a real transaction. The entire supply is minted to
-      <span class="mono">${esc(chain.shortAddress(state.account))}</span> — your wallet — and the
-      total supply can never change.</div>
+    <div class="field"><label>Fixed supply</label>
+      <input value="1,000,000,000 (fixed)" disabled /></div>
+    <div class="notice">Supply is always 1,000,000,000 and is <strong>not a choice</strong> —
+      Uniswap's InstantLaunchStrategy rejects any other supply, so offering the option would be a
+      lie. This sends a real transaction; the entire supply is minted to
+      <span class="mono">${esc(chain.shortAddress(state.account))}</span> and can never change.</div>
     <button class="btn primary" style="width:100%;margin-top:18px" type="submit">Launch token →</button>
   </form>`;
   document.body.appendChild(wrap);
