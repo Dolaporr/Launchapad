@@ -1,0 +1,492 @@
+{
+  "startedAt": "2026-09-13T15:11:34.293Z",
+  "transactions": [
+    {
+      "step": "fundPadOwner",
+      "hash": "0x58767b91fb605dd4c1b44b68bdecb6b9aa425fd8de54aee29edd6a69ff413817",
+      "block": 62053513,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+      "gasUsed": "21000",
+      "gasPrice": "92438000",
+      "gasCostEth": "0.000001941198",
+      "valueEth": "0.001025069926524",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x58767b91fb605dd4c1b44b68bdecb6b9aa425fd8de54aee29edd6a69ff413817"
+    },
+    {
+      "step": "fundTokenCreator",
+      "hash": "0x0e1ac6e88142b0ee825cd7e9d8ef45df3e30cc8c4235a73fa1ff245b4937c2b8",
+      "block": 62053617,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+      "gasUsed": "21000",
+      "gasPrice": "85762000",
+      "gasCostEth": "0.000001801002",
+      "valueEth": "0.000475310758832",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x0e1ac6e88142b0ee825cd7e9d8ef45df3e30cc8c4235a73fa1ff245b4937c2b8"
+    },
+    {
+      "step": "marketLaunch",
+      "hash": "0x2510145068dcdcfe7a266966a31b60a4ab1c984d7c0b8e9d6d042f693ae3c075",
+      "block": 62053834,
+      "from": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+      "to": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6",
+      "gasUsed": "1234753",
+      "gasPrice": "92140000",
+      "gasCostEth": "0.00011377014142",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x2510145068dcdcfe7a266966a31b60a4ab1c984d7c0b8e9d6d042f693ae3c075"
+    },
+    {
+      "step": "provingBuy",
+      "hash": "0xa65faf471b6359c9c56915b6246c6e2150b3b7c7f11129995c489998a93b5673",
+      "block": 62054301,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0x06AfBA43Fd06227fA663b0DAecF536f6EaA6bf99",
+      "gasUsed": "115803",
+      "gasPrice": "83802000",
+      "gasCostEth": "0.000009704523006",
+      "valueEth": "0.001",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xa65faf471b6359c9c56915b6246c6e2150b3b7c7f11129995c489998a93b5673"
+    },
+    {
+      "step": "collectFees",
+      "hash": "0xf304ae298bb2b305f2594630a5ff2b65925eda6f6e68f221423e8732df2a848d",
+      "block": 62054500,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf",
+      "gasUsed": "225806",
+      "gasPrice": "85182000",
+      "gasCostEth": "0.000019234606692",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xf304ae298bb2b305f2594630a5ff2b65925eda6f6e68f221423e8732df2a848d"
+    },
+    {
+      "step": "collectAndSplit",
+      "hash": "0xd62a2c43d1b10ddccaaf74ad7b6057b8fff4b1cda40e846d086e945df352586a",
+      "block": 62054613,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b",
+      "gasUsed": "186484",
+      "gasPrice": "88334000",
+      "gasCostEth": "0.000016472877656",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xd62a2c43d1b10ddccaaf74ad7b6057b8fff4b1cda40e846d086e945df352586a"
+    },
+    {
+      "step": "withdrawFor_creator",
+      "hash": "0x6e2fd6ff80798feb949102f2a57881d53c53f2f6ec782142d52437d4e5eb0e4a",
+      "block": 62054883,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b",
+      "gasUsed": "38296",
+      "gasPrice": "86568000",
+      "gasCostEth": "0.000003315208128",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0x6e2fd6ff80798feb949102f2a57881d53c53f2f6ec782142d52437d4e5eb0e4a"
+    },
+    {
+      "step": "withdrawFor_padOwner",
+      "hash": "0xfede9087a36c6b1e4ba245b95f858ffadf33598a9f8f7c014e176157239072cc",
+      "block": 62055118,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b",
+      "gasUsed": "38296",
+      "gasPrice": "83338000",
+      "gasCostEth": "0.000003191512048",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xfede9087a36c6b1e4ba245b95f858ffadf33598a9f8f7c014e176157239072cc"
+    },
+    {
+      "step": "withdrawFor_treasury",
+      "hash": "0xa164b1897441d085197ed47cdb73411125bb0e6909f75b76f376c55fe64c2bea",
+      "block": 62055338,
+      "from": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "to": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b",
+      "gasUsed": "34477",
+      "gasPrice": "86278000",
+      "gasCostEth": "0.000002974606606",
+      "valueEth": "0.0",
+      "explorer": "https://robinhoodchain.blockscout.com/tx/0xa164b1897441d085197ed47cdb73411125bb0e6909f75b76f376c55fe64c2bea"
+    }
+  ],
+  "checks": [
+    {
+      "label": "chain id is 4663",
+      "passed": true,
+      "detail": "4663"
+    },
+    {
+      "label": "liquidityLauncher codehash unchanged",
+      "passed": true,
+      "detail": "0x4a586d925c9d59ec"
+    },
+    {
+      "label": "instantLaunchStrategy codehash unchanged",
+      "passed": true,
+      "detail": "0x29df27cf43533e9b"
+    },
+    {
+      "label": "feeSplitter codehash unchanged",
+      "passed": true,
+      "detail": "0x8238e5106b3a8955"
+    },
+    {
+      "label": "beneficiaryVault codehash unchanged",
+      "passed": true,
+      "detail": "0x725412bf00221437"
+    },
+    {
+      "label": "positionManager codehash unchanged",
+      "passed": true,
+      "detail": "0xc873e135dc9aaec8"
+    },
+    {
+      "label": "poolManager codehash unchanged",
+      "passed": true,
+      "detail": "0xbd3881180b547f5f"
+    },
+    {
+      "label": "universalRouter codehash unchanged",
+      "passed": true,
+      "detail": "0xbe8e8191bb42d843"
+    },
+    {
+      "label": "liquidityLauncher still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "instantLaunchStrategy still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "feeSplitter still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "beneficiaryVault still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "positionManager still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "poolManager still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "universalRouter still registry \"active\"",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "vault is still a split recipient",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "vault still 40% of the ETH side",
+      "passed": true,
+      "detail": "4000"
+    },
+    {
+      "label": "vault still 0% of the token side",
+      "passed": true,
+      "detail": "0"
+    },
+    {
+      "label": "strategy TOTAL_SUPPLY still 1e9x1e18",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "strategy LP_FEE still 2500",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "all four roles are distinct",
+      "passed": true,
+      "detail": "4/4"
+    },
+    {
+      "label": "estimate is within MAX_ETH_BUDGET",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "balance covers the estimate",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "rewards landed at the predicted address",
+      "passed": true,
+      "detail": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+    },
+    {
+      "label": "protocol treasury on rewards is the approved address",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "pad owner is the pad-owner wallet",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "policy is OPEN",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "no token has been launched yet (refusing a second)",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "the Uniswap v4 pool exists and is initialised",
+      "passed": true,
+      "detail": "tick=198049 lpFee=2500"
+    },
+    {
+      "label": "the pool charges 25 bps",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "not one unit is held by any party",
+      "passed": true,
+      "detail": "sum=0"
+    },
+    {
+      "label": "every unit is locked liquidity or burned",
+      "passed": false,
+      "detail": "pool 999999204543242512891394754 + burned 17786 = 999999204543242512891412540 of 1000000000000000000000000000"
+    },
+    {
+      "label": "beneficiary NFT belongs to LaunchpadRewards",
+      "passed": true,
+      "detail": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+    },
+    {
+      "label": "verifyMarketLaunch(token) == true",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "attribution: creator",
+      "passed": true,
+      "detail": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811"
+    },
+    {
+      "label": "attribution: pad owner",
+      "passed": true,
+      "detail": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b"
+    },
+    {
+      "label": "attribution: launchpad",
+      "passed": true,
+      "detail": "0x755b0d58Db11c845FB19a28CD5F0717c24098681"
+    },
+    {
+      "label": "the buy received tokens from the pool",
+      "passed": true,
+      "detail": "397659.772902385602942567 CANARY"
+    },
+    {
+      "label": "LP fee is within 1 wei of nominal 25 bps",
+      "passed": false,
+      "detail": "delta 4998870000"
+    },
+    {
+      "label": "the token side was not charged on a buy",
+      "passed": true,
+      "detail": "0"
+    },
+    {
+      "label": "40% of the realised fee is attributed to our position",
+      "passed": true,
+      "detail": "1001999548000 wei vs 1001999548000"
+    },
+    {
+      "label": "creator credited exactly 50% (floored)",
+      "passed": true,
+      "detail": "500999774000 vs 500999774000"
+    },
+    {
+      "label": "pad owner credited exactly 30% (floored)",
+      "passed": true,
+      "detail": "300599864400 vs 300599864400"
+    },
+    {
+      "label": "every wei conserved",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "protocol absorbs <=2 wei of rounding dust",
+      "passed": true,
+      "detail": "dust +0"
+    },
+    {
+      "label": "creator received exactly what was owed",
+      "passed": true,
+      "detail": "500999774000 vs 500999774000 wei"
+    },
+    {
+      "label": "creator has nothing left pending",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "padOwner received exactly what was owed",
+      "passed": true,
+      "detail": "300599864400 vs 300599864400 wei"
+    },
+    {
+      "label": "padOwner has nothing left pending",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "treasury received exactly what was owed",
+      "passed": true,
+      "detail": "200399909600 vs 200399909600 wei"
+    },
+    {
+      "label": "treasury has nothing left pending",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "label": "nothing unaccounted in rewards",
+      "passed": true,
+      "detail": ""
+    }
+  ],
+  "notes": [
+    "Resumed from an interrupted run; the stack and pad were attached, not redeployed."
+  ],
+  "roles": {
+    "deployer": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+    "padOwner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "tokenCreator": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+    "protocolTreasury": "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef"
+  },
+  "preflight": {
+    "block": 62053401,
+    "gasPriceWei": "208576000",
+    "deployerBalanceEth": "0.00341030800598",
+    "estimatedTotalEth": "0.001601867114176",
+    "maxBudgetEth": "0.01"
+  },
+  "totals": {
+    "gasUsed": "1915915",
+    "ethSpentOnGas": "0.000172405675556"
+  },
+  "contracts": {
+    "LaunchpadFactory": "0xB314cd4731c4F3B4025FCcF5B8E0a3072E8BCbde",
+    "LaunchpadFamilyLauncher": "0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6",
+    "LaunchpadRewards": "0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b",
+    "explorer": {
+      "LaunchpadFactory": "https://robinhoodchain.blockscout.com/address/0xB314cd4731c4F3B4025FCcF5B8E0a3072E8BCbde",
+      "LaunchpadFamilyLauncher": "https://robinhoodchain.blockscout.com/address/0x4FFbCb9395a839F02f8baeDc02b42CB6E64d9ea6",
+      "LaunchpadRewards": "https://robinhoodchain.blockscout.com/address/0xC2fE1c6730cc029DcBaC04a04D80baFfC7ed530b"
+    }
+  },
+  "launchpad": {
+    "address": "0x755b0d58Db11c845FB19a28CD5F0717c24098681",
+    "owner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "explorer": "https://robinhoodchain.blockscout.com/address/0x755b0d58Db11c845FB19a28CD5F0717c24098681"
+  },
+  "token": {
+    "address": "0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4",
+    "name": "Launchpad Family Canary",
+    "symbol": "CANARY",
+    "positionTokenId": "2635400",
+    "explorer": "https://robinhoodchain.blockscout.com/address/0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4"
+  },
+  "supply": {
+    "totalSupply": "1000000000000000000000000000",
+    "lockedInPool": "999999204543242512891394754",
+    "burned": "17786",
+    "heldByAnyParty": "0"
+  },
+  "attribution": {
+    "tokenCreator": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+    "launchpadOwner": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+    "launchpad": "0x755b0d58Db11c845FB19a28CD5F0717c24098681",
+    "verified": true
+  },
+  "provingBuy": {
+    "amountInEth": "0.001",
+    "amountInWei": "1000000000000000",
+    "tokensReceived": "397659772902385602942567",
+    "tokensReceivedFormatted": "397659.772902385602942567",
+    "buyer": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461"
+  },
+  "fees": {
+    "lpFeeNativeWei": "2504998870000",
+    "lpFeeTokenWei": "0",
+    "nominalLpFeeWei": "2500000000000",
+    "attributedToVaultWei": "1001999548000"
+  },
+  "split": {
+    "claimedWei": "1001999548000",
+    "creatorWei": "500999774000",
+    "padOwnerWei": "300599864400",
+    "treasuryWei": "200399909600",
+    "nominalProtocolWei": "200399909600",
+    "protocolDustWei": "0"
+  },
+  "withdrawals": {
+    "creator": {
+      "party": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+      "owedWei": "500999774000",
+      "receivedWei": "500999774000"
+    },
+    "padOwner": {
+      "party": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+      "owedWei": "300599864400",
+      "receivedWei": "300599864400"
+    },
+    "treasury": {
+      "party": "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef",
+      "owedWei": "200399909600",
+      "receivedWei": "200399909600"
+    }
+  },
+  "finalBalances": {
+    "deployer": {
+      "address": "0x90f48E9BFdDe2cbf6B1592741F3C0973e819C461",
+      "eth": "0.000851291786488",
+      "wei": "851291786488000"
+    },
+    "padOwner": {
+      "address": "0x23fA4a22CE185fb15911ABe7C274a33C05af2b0b",
+      "eth": "0.0015484758386964",
+      "wei": "1548475838696400"
+    },
+    "tokenCreator": {
+      "address": "0x2C4AcE643cb9C6a76d9b9FBDe9C38D9732456811",
+      "eth": "0.00080641440485",
+      "wei": "806414404850000"
+    },
+    "protocolTreasury": {
+      "address": "0x82Eb14F2FC326DD2E6e16E8A77b56bf45537f1Ef",
+      "eth": "0.0014984740319096",
+      "wei": "1498474031909600"
+    },
+    "deployerCanaryTokens": "397659772902385602942567"
+  },
+  "completedAt": "2026-09-13T15:15:21.176Z",
+  "result": "2 CHECK(S) FAILED"
+}

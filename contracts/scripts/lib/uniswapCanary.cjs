@@ -90,18 +90,20 @@ const vaultAbi = [
 ];
 
 /** Executes the proving buy through Uniswap's UniversalRouter. Returns the receipt. */
-async function buyThroughUniversalRouter({ signer, token, amountIn, deadlineSeconds = 1800 }) {
+async function buyThroughUniversalRouter({
+  signer, token, amountIn, deadlineSeconds = 1800, overrides = {},
+}) {
   const router = new ethers.Contract(U.universalRouter, routerAbi, signer);
   const { commands, inputs } = encodeBuy({ token, amountIn });
   const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);
-  const tx = await router.execute(commands, inputs, deadline, { value: amountIn });
+  const tx = await router.execute(commands, inputs, deadline, { value: amountIn, ...overrides });
   return tx.wait();
 }
 
 /** Collects LP fees for a position and returns the amounts Uniswap actually realised. */
-async function collectPoolFees({ signer, positionTokenId }) {
+async function collectPoolFees({ signer, positionTokenId, overrides = {} }) {
   const splitter = new ethers.Contract(U.feeSplitter, splitterAbi, signer);
-  const receipt = await (await splitter.collectFees([positionTokenId])).wait();
+  const receipt = await (await splitter.collectFees([positionTokenId], overrides)).wait();
   const parsed = receipt.logs
     .map((l) => { try { return splitter.interface.parseLog(l); } catch { return null; } })
     .find((p) => p && p.name === 'FeesCollected');
