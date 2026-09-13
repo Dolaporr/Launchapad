@@ -88,14 +88,29 @@ export function buildLaunchState(record) {
   };
 
   // --- 2. POOL ------------------------------------------------------------
+  // Two verifiers produce these records — the Node CLI, which derives the pool id
+  // and reads slot0, and the browser, which reads the position's PoolKey. They
+  // prove the same thing by different routes and name their checks differently,
+  // so the pool is considered established if EITHER route confirmed it. A record
+  // carrying neither check leaves this null, and it renders as unknown.
+  const poolChecks = ['pool.exists', 'pool.pairedWithEth']
+    .map((id) => checkById.get(id))
+    .filter(Boolean);
+
+  // Only ETH-paired pools are launched, but this states what was READ, not what
+  // was expected: an unreadable pool key must not render as a confident "ETH".
+  const currency0 = record.pool?.currency0 ?? null;
+  const pairedWith = currency0 === null ? null : (currency0 === ZERO ? 'ETH' : currency0);
+
   const pool = {
     poolId: record.pool?.poolId ?? null,
     positionTokenId: record.pool?.positionTokenId ?? null,
     feeBps: record.pool?.fee != null ? record.pool.fee / 100 : null,
-    pairedWith: 'ETH',
+    pairedWith,
     hooks: record.pool?.hooks ?? null,
-    hookless: record.pool?.hooks === ZERO,
-    exists: checkById.get('pool.exists')?.passed ?? null,
+    hookless: record.pool?.hooks == null ? null : record.pool.hooks === ZERO,
+    liquidity: record.pool?.liquidity != null ? big(record.pool.liquidity) : null,
+    exists: poolChecks.length ? poolChecks.every((c) => c.passed) : null,
   };
 
   // --- 3. LOCKED LIQUIDITY ------------------------------------------------

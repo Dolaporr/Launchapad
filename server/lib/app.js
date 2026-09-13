@@ -179,10 +179,10 @@ export class App {
    * Returns null when there is no indexer, so the UI shows "unavailable" rather
    * than an authoritative-looking set of zeroes.
    */
-  async metricsFor(padAddress, { padOwner } = {}) {
+  async metricsFor(padAddress, { padOwner, force = false } = {}) {
     if (!this.indexer) return null;
     try {
-      const launches = await this.indexer.indexPad(padAddress);
+      const launches = await this.indexer.indexPad(padAddress, { force });
       return padMetrics(launches, {
         padOwner,
         protocolTreasury: this.contracts.protocolTreasury ?? null,
@@ -191,13 +191,32 @@ export class App {
         ].filter(Boolean),
         uniswapAddresses: this.contracts.uniswap ?? [],
       });
-    } catch {
+    } catch (error) {
+      // Surfaced rather than silently swallowed: a metrics failure that renders
+      // as "no launches" is indistinguishable from a pad that really has none.
+      if (process.env.DEBUG_METRICS) console.error('metricsFor failed:', error.message);
       return null;
     }
   }
 
+  /**
+   * Pads eligible for public discovery.
+   *
+   * Every CONFIRMED pad is viewed first, not just the already-discoverable ones.
+   * A pad only becomes discoverable once its first verified launch is recorded,
+   * and that recording happens while building the view — so filtering first would
+   * mean a pad could never cross the threshold.
+   */
+  async discoverablePads(now = Date.now(), { force = false } = {}) {
+    const rows = this.registry.allConfirmed(this.chainId);
+    const views = (await Promise.all(
+      rows.map((row) => this.padView(row.slug, now, { force })),
+    )).filter(Boolean);
+    return views.filter((view) => view.listing.discoverable);
+  }
+
   /** Public view of a pad: registry + branding + the onchain facts, clearly separated. */
-  async padView(slug, now = Date.now()) {
+  async padView(slug, now = Date.now(), { force = false } = {}) {
     const row = this.registry.resolve(slug, now);
     if (!row) return null;
 
@@ -207,7 +226,9 @@ export class App {
     }
 
     const branding = this.branding.get(row.slug, { fallbackName: onchain?.name ?? '' });
-    const metrics = await this.metricsFor(row.pad_address, { padOwner: row.owner_address });
+    const metrics = await this.metricsFor(row.pad_address, {
+      padOwner: row.owner_address, force,
+    });
 
     // A pad becomes discoverable on its first VERIFIED launch, which only the
     // indexer can establish. The registry records it so abandonment can lift.
@@ -310,9 +331,8 @@ export class App {
     }
 
     if (method === 'GET' && route === '/leaderboard') {
-      const rows = this.registry.discoverable(this.chainId);
-      const pads = (await Promise.all(rows.map((row) => this.padView(row.slug)))).filter(Boolean);
-      return this.json(res, 200, { pads: rankPads(pads) });
+      const force = url.searchParams.get('refresh') === '1';
+      return this.json(res, 200, { pads: rankPads(await this.discoverablePads(Date.now(), { force })) });
     }
 
     const metricsMatch = route.match(/^\/pads\/([^/]+)\/metrics$/);
@@ -323,14 +343,15 @@ export class App {
     }
 
     if (method === 'GET' && route === '/pads') {
-      const rows = this.registry.discoverable(this.chainId);
-      const pads = await Promise.all(rows.map((row) => this.padView(row.slug)));
-      return this.json(res, 200, { pads: pads.filter(Boolean) });
+      const force = url.searchParams.get('refresh') === '1';
+      return this.json(res, 200, { pads: await this.discoverablePads(Date.now(), { force }) });
     }
 
     const padMatch = route.match(/^\/pads\/([^/]+)$/);
     if (method === 'GET' && padMatch) {
-      const view = await this.padView(padMatch[1]);
+      const view = await this.padView(padMatch[1], Date.now(), {
+        force: url.searchParams.get('refresh') === '1',
+      });
       if (!view) return this.json(res, 404, { error: 'not_found' });
       return this.json(res, 200, view);
     }

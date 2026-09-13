@@ -207,7 +207,14 @@ export class Indexer {
 
       if (launchBlock === null) {
         launchBlock = await this.launchBlockOf(entry.token, head);
-        if (launchBlock === null) continue; // cannot place it in time; skip rather than guess
+        if (launchBlock === null) {
+          // Skipped rather than guessed. Logged, because silently dropping a real
+          // launch makes a pad look empty when it is not.
+          if (process.env.DEBUG_METRICS) {
+            console.error(`indexer: could not find launch block for ${entry.token}`);
+          }
+          continue;
+        }
         launchedAt = await this.blockTime(launchBlock);
         if (launchedAt === null) continue;
         this.db.prepare(`INSERT OR REPLACE INTO launches

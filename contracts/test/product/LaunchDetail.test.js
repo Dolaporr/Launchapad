@@ -101,6 +101,17 @@ describe('launch detail view', () => {
       expect(out).to.not.include('pill-bad');
     });
 
+    // Regression: the pair and hook rows were hardcoded, so a pool whose key could
+    // not be read still displayed "$SYM / ETH" and "none (hookless)" as if proven.
+    it('shows an unreadable pool key as not established, not as an ETH-paired hookless pool', () => {
+      const stripped = JSON.parse(JSON.stringify(baseline));
+      delete stripped.pool.currency0;
+      delete stripped.pool.hooks;
+      const out = renderLaunchDetail(buildLaunchState(stripped));
+      expect(out).to.not.include('none (hookless)');
+      expect(out).to.match(/not established/);
+    });
+
     it('renders missing fee accounting as a stated gap, not an empty table of zeroes', () => {
       const stripped = JSON.parse(JSON.stringify(baseline));
       delete stripped.feeAccounting;

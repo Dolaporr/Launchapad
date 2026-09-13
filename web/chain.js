@@ -76,6 +76,9 @@ export const ABI = {
     'registrar()': '0x2b20e397',
     'launchpadFactory()': '0x69cc944e',
     'rewards()': '0x9ec5a894',
+    // --- the pool a position actually sits in, read rather than assumed ---
+    'getPoolAndPositionInfo(uint256)': '0x7ba03aad',
+    'getPositionLiquidity(uint256)': '0x1efeed33',
   },
   // Event topic0 (keccak256 of the full event signature).
   TOPICS: {
@@ -296,28 +299,32 @@ export async function switchToTargetChain() {
 // Chain reads and writes
 // ---------------------------------------------------------------------------
 
-export async function ethCall(to, data) {
-  return request('eth_call', [{ to, data }, 'latest']);
+// Every read takes an optional block tag. Reconciliation reads pin themselves to
+// one block: a claim like "every wei reconciles" is only true of a single state,
+// and a fee claimed between two `latest` reads would make the sums disagree for
+// reasons that have nothing to do with the protocol being wrong.
+export async function ethCall(to, data, blockTag = 'latest') {
+  return request('eth_call', [{ to, data }, blockTag]);
 }
 
-export async function callUint(to, signature, args = []) {
-  return decodeUint(await ethCall(to, encodeCall(signature, args)));
+export async function callUint(to, signature, args = [], blockTag = 'latest') {
+  return decodeUint(await ethCall(to, encodeCall(signature, args), blockTag));
 }
 
-export async function callString(to, signature, args = []) {
-  return decodeString(await ethCall(to, encodeCall(signature, args)));
+export async function callString(to, signature, args = [], blockTag = 'latest') {
+  return decodeString(await ethCall(to, encodeCall(signature, args), blockTag));
 }
 
-export async function callAddress(to, signature, args = []) {
-  return decodeAddress(await ethCall(to, encodeCall(signature, args)));
+export async function callAddress(to, signature, args = [], blockTag = 'latest') {
+  return decodeAddress(await ethCall(to, encodeCall(signature, args), blockTag));
 }
 
-export async function callAddressArray(to, signature, args = []) {
-  return decodeAddressArray(await ethCall(to, encodeCall(signature, args)));
+export async function callAddressArray(to, signature, args = [], blockTag = 'latest') {
+  return decodeAddressArray(await ethCall(to, encodeCall(signature, args), blockTag));
 }
 
-export async function callBool(to, signature, args = []) {
-  return (await callUint(to, signature, args)) === 1n;
+export async function callBool(to, signature, args = [], blockTag = 'latest') {
+  return (await callUint(to, signature, args, blockTag)) === 1n;
 }
 
 export async function sendTransaction({ from, to, data }) {
@@ -448,10 +455,10 @@ export async function isVerifiedMarketLaunch(launcher, token) {
 }
 
 /// Reads the immutable attribution for a verified market launch.
-export async function readMarketLaunch(launcher, token) {
+export async function readMarketLaunch(launcher, token, blockTag = 'latest') {
   const raw = await ethCall(launcher, encodeCall('verifiedLaunchOf(address)', [
     { type: 'address', value: token },
-  ]));
+  ]), blockTag);
   const hex = (raw || '').replace(/^0x/, '');
   if (hex.length < 64 * 5) return null;
   const word = (i) => hex.slice(i * 64, (i + 1) * 64);
@@ -469,6 +476,42 @@ export async function readMarketLaunch(launcher, token) {
 
 export async function readMarketTokensOfPad(launcher, pad) {
   return callAddressArray(launcher, 'tokensOfLaunchpad(address)', [{ type: 'address', value: pad }]);
+}
+
+/**
+ * The PoolKey an LP position actually sits in, plus its liquidity.
+ *
+ * The pool's parameters are READ, never assumed. Deriving a pool id from the
+ * parameters we expect and then reporting those same parameters back would
+ * prove nothing: it would only restate the assumption. Asking the
+ * PositionManager which pool THIS position is in proves the launch really used
+ * an ETH-paired, 25 bps, hookless pool.
+ *
+ * PoolKey is a static struct, so the return is six flat words:
+ * currency0, currency1, fee, tickSpacing, hooks, packed position info.
+ */
+export async function readPoolKey(positionTokenId, blockTag = 'latest') {
+  const raw = await ethCall(
+    UNISWAP.positionManager,
+    encodeCall('getPoolAndPositionInfo(uint256)', [{ type: 'uint', value: positionTokenId }]),
+    blockTag,
+  );
+  const hex = strip(raw);
+  if (hex.length < 64 * 6) return null;
+  const word = (i) => hex.slice(i * 64, (i + 1) * 64);
+  return {
+    currency0: decodeAddress(word(0)),
+    currency1: decodeAddress(word(1)),
+    fee: Number(BigInt(`0x${word(2)}`)),
+    // int24, but a tick spacing is never negative in practice; read as unsigned.
+    tickSpacing: Number(BigInt(`0x${word(3)}`)),
+    hooks: decodeAddress(word(4)),
+  };
+}
+
+export async function readPositionLiquidity(positionTokenId, blockTag = 'latest') {
+  return callUint(UNISWAP.positionManager, 'getPositionLiquidity(uint256)',
+    [{ type: 'uint', value: positionTokenId }], blockTag);
 }
 
 /// What a party can withdraw right now, and what has been distributed for a position so far.
@@ -577,16 +620,22 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   const add = (id, passed, detail = '') => checks.push({ id, passed, detail });
   const controlled = new Set(controlledWallets.filter(Boolean).map((a) => a.toLowerCase()));
 
-  const rewardsAddress = await callAddress(launcher, 'rewards()');
-  const factoryAddress = await callAddress(launcher, 'launchpadFactory()');
+  // Every read below is pinned to this block, so the reconciliation describes
+  // one state of the chain rather than a moving one.
+  const head = await getBlockNumber();
+  const at = `0x${head.toString(16)}`;
+
+  const rewardsAddress = await callAddress(launcher, 'rewards()', [], at);
+  const factoryAddress = await callAddress(launcher, 'launchpadFactory()', [], at);
 
   // --- the two-way binding ------------------------------------------------
-  const launch = await readMarketLaunch(launcher, token);
+  const launch = await readMarketLaunch(launcher, token, at);
   add('launch.recordedByLauncher', Boolean(launch) && launch.verified === true,
     launch ? launch.token : 'no record');
   if (!launch || !launch.verified) {
     return {
       schemaVersion: 1,
+      reconciledAtBlock: head,
       verification: { status: 'FAILED', checks },
       findings: ['This launcher has no verified record for that token.'],
     };
@@ -594,23 +643,45 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   add('launch.verifyMarketLaunch', true);
 
   const [name, symbol, totalSupply, decimals] = await Promise.all([
-    callString(token, 'name()'),
-    callString(token, 'symbol()'),
-    callUint(token, 'totalSupply()'),
-    callUint(token, 'decimals()'),
+    callString(token, 'name()', [], at),
+    callString(token, 'symbol()', [], at),
+    callUint(token, 'totalSupply()', [], at),
+    callUint(token, 'decimals()', [], at),
   ]);
   add('token.supplyIsOneBillion18', totalSupply === FIXED_TOKEN_SUPPLY * 10n ** 18n,
     totalSupply.toString());
 
-  // --- the lock -----------------------------------------------------------
+  // --- the pool this position is actually in ------------------------------
   const positionId = launch.positionTokenId;
+  let poolKey = null;
+  let positionLiquidity = null;
+  try {
+    poolKey = await readPoolKey(positionId, at);
+  } catch { /* left null: reported as failed checks below */ }
+  try {
+    positionLiquidity = await readPositionLiquidity(positionId, at);
+  } catch { /* left null */ }
+
+  if (poolKey) {
+    add('pool.pairedWithEth', poolKey.currency0 === ZERO_ADDRESS
+      && poolKey.currency1.toLowerCase() === token.toLowerCase(),
+    `${poolKey.currency0} / ${poolKey.currency1}`);
+    add('pool.feeIs25Bps', poolKey.fee === 2500, String(poolKey.fee));
+    add('pool.hookless', poolKey.hooks === ZERO_ADDRESS, poolKey.hooks);
+  } else {
+    add('pool.pairedWithEth', false, 'the position\'s pool key could not be read');
+  }
+  add('pool.hasLiquidity', positionLiquidity !== null && positionLiquidity > 0n,
+    positionLiquidity === null ? 'position liquidity could not be read' : String(positionLiquidity));
+
+  // --- the lock -----------------------------------------------------------
   let positionOwner = null;
   let beneficiaryOwner = null;
   try {
-    positionOwner = await callAddress(UNISWAP.positionManager, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }]);
+    positionOwner = await callAddress(UNISWAP.positionManager, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }], at);
   } catch { /* left null: reported as a failed check below */ }
   try {
-    beneficiaryOwner = await callAddress(UNISWAP.beneficiaryVault, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }]);
+    beneficiaryOwner = await callAddress(UNISWAP.beneficiaryVault, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }], at);
   } catch { /* left null */ }
 
   add('liquidity.permanentlyLocked',
@@ -621,14 +692,14 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
     beneficiaryOwner || 'beneficiary owner could not be read');
 
   // --- supply reconciliation ---------------------------------------------
-  const lockedInPool = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: UNISWAP.poolManager }]);
-  const burned = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: BURN_ADDRESS }]);
+  const lockedInPool = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: UNISWAP.poolManager }], at);
+  const burned = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: BURN_ADDRESS }], at);
 
   let holders = [];
   let supplyExact = false;
   if (fromBlock !== undefined && fromBlock !== null) {
     const logs = await getLogs({
-      address: token, topics: [ABI.TOPICS['Transfer(address,address,uint256)']], fromBlock,
+      address: token, topics: [ABI.TOPICS['Transfer(address,address,uint256)']], fromBlock, toBlock: at,
     });
     const touched = new Set();
     for (const log of logs) {
@@ -640,7 +711,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
     ]);
     for (const address of touched) {
       if (skip.has(address.toLowerCase())) continue;
-      const balance = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: address }]);
+      const balance = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: address }], at);
       if (balance === 0n) continue;
       holders.push({
         address,
@@ -659,17 +730,16 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   }
 
   // --- fee accounting -----------------------------------------------------
-  const attribution = await readRewards(rewardsAddress, { positionTokenId: positionId });
-  const treasury = await callAddress(rewardsAddress, 'protocolTreasury()');
+  const treasury = await callAddress(rewardsAddress, 'protocolTreasury()', [], at);
   const [creatorBps, padBps, protocolBps] = await Promise.all([
-    callUint(rewardsAddress, 'CREATOR_BPS()'),
-    callUint(rewardsAddress, 'PAD_OWNER_BPS()'),
-    callUint(rewardsAddress, 'PROTOCOL_BPS()'),
+    callUint(rewardsAddress, 'CREATOR_BPS()', [], at),
+    callUint(rewardsAddress, 'PAD_OWNER_BPS()', [], at),
+    callUint(rewardsAddress, 'PROTOCOL_BPS()', [], at),
   ]);
   add('split.sumsTo100Pct', creatorBps + padBps + protocolBps === 10000n,
     `${creatorBps}/${padBps}/${protocolBps}`);
 
-  const lifetime = await callUint(rewardsAddress, 'lifetimeDistributed(uint256)', [{ type: 'uint256', value: positionId }]);
+  const lifetime = await callUint(rewardsAddress, 'lifetimeDistributed(uint256)', [{ type: 'uint256', value: positionId }], at);
   const parties = {
     creator: launch.tokenCreator,
     launchpadOwner: launch.launchpadOwner,
@@ -677,7 +747,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   };
   const pendingWei = {};
   for (const [role, address] of Object.entries(parties)) {
-    pendingWei[role] = (await callUint(rewardsAddress, 'pending(address)', [{ type: 'address', value: address }])).toString();
+    pendingWei[role] = (await callUint(rewardsAddress, 'pending(address)', [{ type: 'address', value: address }], at)).toString();
   }
 
   // Credited per party is derived from the immutable split applied to the lifetime total.
@@ -690,7 +760,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   for (const role of Object.keys(parties)) {
     withdrawnWei[role] = (BigInt(creditedWei[role]) - BigInt(pendingWei[role])).toString();
   }
-  const unaccounted = await callUint(rewardsAddress, 'unaccountedBalance()');
+  const unaccounted = await callUint(rewardsAddress, 'unaccountedBalance()', [], at);
   add('fees.noUnaccountedEth', unaccounted === 0n, unaccounted.toString());
   const feeExact = Object.keys(parties)
     .every((r) => BigInt(withdrawnWei[r]) + BigInt(pendingWei[r]) === BigInt(creditedWei[r]))
@@ -709,6 +779,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   const failed = checks.filter((c) => !c.passed);
   return {
     schemaVersion: 1,
+    reconciledAtBlock: head,
     chainId: TARGET_CHAIN.chainId,
     contracts: {
       LaunchpadFactory: factoryAddress,
@@ -720,13 +791,17 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
       address: token, name, symbol, decimals: Number(decimals), totalSupply: totalSupply.toString(),
     },
     pool: {
+      // Not derived: computing a pool id needs keccak, which this build-stepless
+      // client does not carry. The pool's parameters below are read instead, which
+      // is the stronger evidence anyway.
       poolId: null,
       positionTokenId: positionId.toString(),
-      currency0: ZERO_ADDRESS,
-      currency1: token,
-      fee: 2500,
-      tickSpacing: 25,
-      hooks: ZERO_ADDRESS,
+      currency0: poolKey?.currency0 ?? null,
+      currency1: poolKey?.currency1 ?? null,
+      fee: poolKey?.fee ?? null,
+      tickSpacing: poolKey?.tickSpacing ?? null,
+      hooks: poolKey?.hooks ?? null,
+      liquidity: positionLiquidity === null ? null : positionLiquidity.toString(),
       positionOwner,
       beneficiaryOwner,
     },

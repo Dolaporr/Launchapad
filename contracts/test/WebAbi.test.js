@@ -63,6 +63,8 @@ describe('web/chain.js ABI constants', () => {
     // check against. Each one must be justified here rather than silently skipped.
     const EXTERNAL = {
       'ownerOf(uint256)': 'ERC-721 on Uniswap PositionManager and UERC20BeneficiaryVault',
+      'getPoolAndPositionInfo(uint256)': 'IPositionManager on Uniswap v4 PositionManager',
+      'getPositionLiquidity(uint256)': 'IPositionManager on Uniswap v4 PositionManager',
     };
 
     for (const signature of Object.keys(selectors)) {

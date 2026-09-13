@@ -173,6 +173,46 @@ describe('launch state (product model)', () => {
       expect(() => buildLaunchState(null)).to.throw(/requires a verification record/);
       expect(() => buildLaunchState('nope')).to.throw(/requires a verification record/);
     });
+
+    // Regression: the browser verifier never emitted `pool.exists`, so the pool step
+    // rendered "unknown" on a page whose own banner said every check had passed. A
+    // step badge and the banner must never contradict each other.
+    it('accepts either verifier\'s proof that the pool is real', () => {
+      const browserStyle = JSON.parse(JSON.stringify(baseline));
+      browserStyle.verification.checks = browserStyle.verification.checks
+        .filter((c) => c.id !== 'pool.exists' && c.id !== 'pool.feeIs25Bps')
+        .concat([
+          { id: 'pool.pairedWithEth', passed: true, detail: 'ETH / token' },
+          { id: 'pool.feeIs25Bps', passed: true, detail: '2500' },
+          { id: 'pool.hookless', passed: true, detail: `0x${'0'.repeat(40)}` },
+        ]);
+      expect(buildLaunchState(browserStyle).pool.exists).to.equal(true);
+    });
+
+    it('leaves the pool unknown when neither verifier proved it', () => {
+      const neither = JSON.parse(JSON.stringify(baseline));
+      neither.verification.checks = neither.verification.checks
+        .filter((c) => c.id !== 'pool.exists' && c.id !== 'pool.pairedWithEth');
+      expect(buildLaunchState(neither).pool.exists).to.equal(null);
+    });
+
+    // The pair and the hook used to be hardcoded in the browser record, so a pool key
+    // that could not be read still rendered a confident "ETH" and "none (hookless)".
+    it('does not claim an ETH pair or a missing hook that was never read', () => {
+      const unread = JSON.parse(JSON.stringify(baseline));
+      delete unread.pool.currency0;
+      delete unread.pool.hooks;
+      const s = buildLaunchState(unread);
+      expect(s.pool.pairedWith).to.equal(null);
+      expect(s.pool.hookless).to.equal(null);
+    });
+
+    it('names the real counter-currency when a pool is not ETH-paired', () => {
+      const odd = JSON.parse(JSON.stringify(baseline));
+      odd.pool.currency0 = '0x1111111111111111111111111111111111111111';
+      expect(buildLaunchState(odd).pool.pairedWith)
+        .to.equal('0x1111111111111111111111111111111111111111');
+    });
   });
 
   describe('formatting keeps sub-microether fee capture legible', () => {

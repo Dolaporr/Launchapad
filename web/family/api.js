@@ -55,8 +55,12 @@ export const api = {
   releaseSlug: (slug, owner) => call('/slug/release', { method: 'POST', body: { slug, owner } }),
 
   // --- pads ----------------------------------------------------------------
-  pads: () => call('/pads'),
-  pad: (slug) => call(`/pads/${encodeURIComponent(slug)}`),
+  // `refresh` forces a re-index. Used right after a launch so the creator sees
+  // their own token immediately instead of waiting out the index cache.
+  pads: ({ refresh = false } = {}) => call(`/pads${refresh ? '?refresh=1' : ''}`),
+  pad: (slug, { refresh = false } = {}) => call(
+    `/pads/${encodeURIComponent(slug)}${refresh ? '?refresh=1' : ''}`,
+  ),
   padsOfOwner: (owner) => call(`/owner/pads?owner=${encodeURIComponent(owner)}`),
 
   /**
@@ -79,7 +83,7 @@ export const api = {
   ),
 
   // --- metrics -------------------------------------------------------------
-  leaderboard: () => call('/leaderboard'),
+  leaderboard: ({ refresh = false } = {}) => call(`/leaderboard${refresh ? '?refresh=1' : ''}`),
   padMetrics: (slug) => call(`/pads/${encodeURIComponent(slug)}/metrics`),
 
   // --- export --------------------------------------------------------------

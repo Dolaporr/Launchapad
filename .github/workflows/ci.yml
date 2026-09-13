@@ -47,6 +47,39 @@ jobs:
       - name: Assert no unexpected privileged entry points
         run: node scripts/checkPrivileged.cjs
 
+  server:
+    name: Server (Node 22)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # node:sqlite's DatabaseSync landed in 22.5, and the server has no runtime
+      # dependencies precisely so that it needs nothing but a modern Node.
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test
+        run: npm test
+
+      # The server claims zero runtime dependencies. That claim is only worth
+      # anything if something checks it.
+      - name: Assert no runtime dependencies
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./package.json');process.exit(Object.keys(p.dependencies||{}).length?1:0)"; then
+            echo "No runtime dependencies."
+          else
+            echo "::error::The server picked up a runtime dependency."
+            exit 1
+          fi
+
   secrets:
     name: No committed secrets
     runs-on: ubuntu-latest

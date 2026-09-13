@@ -83,10 +83,12 @@ export function renderLaunchDetail(state, { explorerBase = '' } = {}) {
     <section class="step">
       ${stepHeader(2, 'Uniswap v4 pool', state.pool.exists)}
       <div class="kv">
-        <div><span class="k">Pair</span><span class="v">$${esc(state.token.symbol ?? '')} / ETH</span></div>
+        <div><span class="k">Pair</span><span class="v">
+          ${known(state.pool.pairedWith, (x) => `$${esc(state.token.symbol ?? '')} / ${esc(x)}`)}</span></div>
         <div><span class="k">LP fee</span><span class="v">
           ${known(state.pool.feeBps, (x) => `${esc(x)} bps`)}</span></div>
-        <div><span class="k">Hook</span><span class="v">${state.pool.hookless ? 'none (hookless)' : esc(short(state.pool.hooks))}</span></div>
+        <div><span class="k">Hook</span><span class="v">
+          ${known(state.pool.hookless, (x) => (x ? 'none (hookless)' : esc(short(state.pool.hooks))))}</span></div>
         <div><span class="k">Position ID</span><span class="v mono">${esc(state.pool.positionTokenId ?? '—')}</span></div>
       </div>
     </section>

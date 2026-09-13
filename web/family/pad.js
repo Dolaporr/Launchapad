@@ -311,7 +311,7 @@ async function submitLaunch() {
     const hash = await chain.launchMarketTokenTx({
       from: w.address,
       launcher,
-      launchpad: state.pad.padAddress,
+      pad: state.pad.padAddress,
       name: d.name.trim(),
       symbol: d.symbol.trim(),
     });
@@ -324,8 +324,9 @@ async function submitLaunch() {
     if (!token) throw new Error('Could not find the new token in the transaction logs.');
     d.created = { token };
     d.tx = { status: 'done', hash };
-    // The pad is now discoverable; refresh so its metrics reflect the launch.
-    state.pad = await api.pad(state.pad.slug);
+    // Force a re-index so the creator sees their own launch straight away rather
+    // than waiting out the index cache.
+    state.pad = await api.pad(state.pad.slug, { refresh: true });
   } catch (error) {
     d.tx = { status: 'error', message: chain.describeError(error) };
   }
@@ -343,10 +344,27 @@ async function renderToken(token) {
   }
 
   try {
+    // Holder discovery needs a scan window. Without one the verifier correctly
+    // refuses to claim supply reconciles, so the window is established first
+    // from the launcher's own event rather than left undefined.
+    let fromBlock;
+    try {
+      const logs = await chain.getLogs({
+        address: launcher,
+        topics: [
+          chain.ABI.TOPICS['TokenLaunchedToUniswap(address,address,address,address,uint256)'],
+          `0x${'0'.repeat(24)}${token.replace(/^0x/, '')}`.toLowerCase(),
+        ],
+        fromBlock: 0,
+      });
+      if (logs.length) fromBlock = Number(BigInt(logs[0].blockNumber));
+    } catch { /* left undefined; the record will say supply is unreconcilable */ }
+
     const record = await chain.readLaunchState({
       launcher,
       token,
       controlledWallets: [wallet.wallet.address].filter(Boolean),
+      fromBlock,
     });
     const model = buildLaunchState(record);
     const explorerBase = (chain.explorerUrl('address', '0x0', state.config.chainId) || '')
