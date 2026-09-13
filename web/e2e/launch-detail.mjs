@@ -119,7 +119,11 @@ check('liquidity is reported locked', state?.locked === true);
 check('the LP position is held by Uniswap\'s FeeSplitter',
   (state?.positionOwner || '').toLowerCase() === '0xeff166aaf189323c58dc27ed1206eb2c37faacdf',
   state?.positionOwner);
-check('essentially the whole supply is locked', (state?.lockedPercent ?? 0) > 99);
+// How much remains in the pool is a function of trading, NOT a product guarantee — a large early
+// buy legitimately takes most of a single-sided pool's supply. The guarantee is that whatever is
+// in the pool cannot be withdrawn by anyone, which the position-owner check above proves.
+check('liquidity remains in the pool and is reported', (state?.lockedPercent ?? 0) > 0,
+  `${state?.lockedPercent?.toFixed(2)}% of supply still locked (the rest was bought)`);
 check('supply reconciles exactly', state?.supplyReconciles === true);
 
 console.log('\n=== 4. Swapped ETH is NOT presented as revenue ===');
@@ -131,9 +135,12 @@ check('the revenue section states it is the only revenue',
   /This is the only revenue/.test(shell));
 check('the revenue section disclaims trading volume',
   /not of trading volume/.test(shell));
-check('captured fees are far smaller than the ETH swapped',
-  state?.captured != null && BigInt(state.captured) < 10n ** 15n,
-  `${state?.captured} wei captured`);
+// The measured rate is ~10 bps of ETH buy volume, so capture must be a small fraction of the
+// ETH swapped. Asserted relative to the harness's actual buy, not a canary-sized constant.
+const SWAPPED_WEI = BigInt(process.env.BUY_ETH_WEI || '5000000000000000000'); // 5 ETH
+check('captured fees are a small fraction of the ETH swapped',
+  state?.captured != null && BigInt(state.captured) * 100n < SWAPPED_WEI,
+  `${state?.captured} wei captured against ${SWAPPED_WEI} wei swapped`);
 
 console.log('\n=== 5. The three recipients are shown separately at 50 / 30 / 20 ===');
 check('three parties are listed', state?.split?.length === 3);

@@ -583,7 +583,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   // --- the two-way binding ------------------------------------------------
   const launch = await readMarketLaunch(launcher, token);
   add('launch.recordedByLauncher', Boolean(launch) && launch.verified === true,
-    launch ? launch.address : 'no record');
+    launch ? launch.token : 'no record');
   if (!launch || !launch.verified) {
     return {
       schemaVersion: 1,
@@ -607,10 +607,10 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   let positionOwner = null;
   let beneficiaryOwner = null;
   try {
-    positionOwner = await callAddress(UNISWAP.positionManager, 'ownerOf(uint256)', [encodeUint(positionId)]);
+    positionOwner = await callAddress(UNISWAP.positionManager, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }]);
   } catch { /* left null: reported as a failed check below */ }
   try {
-    beneficiaryOwner = await callAddress(UNISWAP.beneficiaryVault, 'ownerOf(uint256)', [encodeUint(positionId)]);
+    beneficiaryOwner = await callAddress(UNISWAP.beneficiaryVault, 'ownerOf(uint256)', [{ type: 'uint256', value: positionId }]);
   } catch { /* left null */ }
 
   add('liquidity.permanentlyLocked',
@@ -621,8 +621,8 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
     beneficiaryOwner || 'beneficiary owner could not be read');
 
   // --- supply reconciliation ---------------------------------------------
-  const lockedInPool = await callUint(token, 'balanceOf(address)', [encodeAddress(UNISWAP.poolManager)]);
-  const burned = await callUint(token, 'balanceOf(address)', [encodeAddress(BURN_ADDRESS)]);
+  const lockedInPool = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: UNISWAP.poolManager }]);
+  const burned = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: BURN_ADDRESS }]);
 
   let holders = [];
   let supplyExact = false;
@@ -640,7 +640,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
     ]);
     for (const address of touched) {
       if (skip.has(address.toLowerCase())) continue;
-      const balance = await callUint(token, 'balanceOf(address)', [encodeAddress(address)]);
+      const balance = await callUint(token, 'balanceOf(address)', [{ type: 'address', value: address }]);
       if (balance === 0n) continue;
       holders.push({
         address,
@@ -669,7 +669,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   add('split.sumsTo100Pct', creatorBps + padBps + protocolBps === 10000n,
     `${creatorBps}/${padBps}/${protocolBps}`);
 
-  const lifetime = await callUint(rewardsAddress, 'lifetimeDistributed(uint256)', [encodeUint(positionId)]);
+  const lifetime = await callUint(rewardsAddress, 'lifetimeDistributed(uint256)', [{ type: 'uint256', value: positionId }]);
   const parties = {
     creator: launch.tokenCreator,
     launchpadOwner: launch.launchpadOwner,
@@ -677,7 +677,7 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   };
   const pendingWei = {};
   for (const [role, address] of Object.entries(parties)) {
-    pendingWei[role] = (await callUint(rewardsAddress, 'pending(address)', [encodeAddress(address)])).toString();
+    pendingWei[role] = (await callUint(rewardsAddress, 'pending(address)', [{ type: 'address', value: address }])).toString();
   }
 
   // Credited per party is derived from the immutable split applied to the lifetime total.
