@@ -11,7 +11,13 @@
     "clean": "hardhat clean",
     "deploy:testnet": "hardhat run scripts/deploy.cjs --network robinhoodTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.cjs --network robinhood",
-    "pad:testnet": "hardhat run scripts/createLaunchpad.cjs --network robinhoodTestnet"
+    "pad:testnet": "hardhat run scripts/createLaunchpad.cjs --network robinhoodTestnet",
+    "test:fork": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat test test/fork/MainnetIntegration.fork.test.js",
+    "test:swaps": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat test test/fork/RealSwaps.fork.test.js",
+    "model:economics": "node scripts/modelEconomics.cjs",
+    "deploy:market": "hardhat run scripts/deployMarket.cjs --network robinhood",
+    "canary:preflight": "hardhat run scripts/canaryPreflight.cjs --network robinhood",
+    "canary:rehearse": "FORK_RPC=${FORK_RPC:-https://rpc.mainnet.chain.robinhood.com} hardhat run scripts/canaryRehearsal.cjs"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",

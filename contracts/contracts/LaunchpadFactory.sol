@@ -32,6 +32,7 @@ contract LaunchpadFactory {
         address indexed owner,
         address feeRouter,
         FeeRouter.Preset preset,
+        Launchpad.LaunchPolicy launchPolicy,
         string name,
         string metadataURI
     );
@@ -51,12 +52,17 @@ contract LaunchpadFactory {
 
     /// @notice Create a launchpad owned by the caller, plus its dedicated fee router.
     /// @dev Metadata bounds are enforced by the `Launchpad` constructor.
-    function createLaunchpad(string calldata name, string calldata metadataURI, FeeRouter.Preset preset)
-        external
-        returns (address pad, address router)
-    {
+    /// @param launchPolicy `Open` lets any wallet launch tokens here (supply goes to whoever
+    ///        launches); `OwnerOnly` restricts launching to the caller. Immutable once set.
+    function createLaunchpad(
+        string calldata name,
+        string calldata metadataURI,
+        FeeRouter.Preset preset,
+        Launchpad.LaunchPolicy launchPolicy
+    ) external returns (address pad, address router) {
         FeeRouter feeRouter = new FeeRouter(msg.sender, protocolTreasury, reserveReceiver, preset);
-        Launchpad launchpad = new Launchpad(msg.sender, name, metadataURI, address(feeRouter), preset);
+        Launchpad launchpad =
+            new Launchpad(msg.sender, name, metadataURI, address(feeRouter), preset, launchPolicy);
 
         pad = address(launchpad);
         router = address(feeRouter);
@@ -65,7 +71,7 @@ contract LaunchpadFactory {
         isLaunchpad[pad] = true;
         _launchpadsByOwner[msg.sender].push(pad);
 
-        emit LaunchpadCreated(pad, msg.sender, router, preset, name, metadataURI);
+        emit LaunchpadCreated(pad, msg.sender, router, preset, launchPolicy, name, metadataURI);
     }
 
     function count() external view returns (uint256) {

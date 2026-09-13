@@ -1,7 +1,7 @@
 const { expect } = require('chai');
 const { ethers } = require('hardhat');
 const { loadFixture } = require('@nomicfoundation/hardhat-network-helpers');
-const { PRESET, deployFactory, createPad } = require('./helpers');
+const { PRESET, POLICY, deployFactory, createPad } = require('./helpers');
 
 describe('LaunchpadFactory', () => {
   it('rejects a zero protocol treasury', async () => {
@@ -64,13 +64,13 @@ describe('LaunchpadFactory', () => {
     const { factory, padOwner } = await loadFixture(deployFactory);
     const pad = await ethers.getContractFactory('Launchpad');
 
-    await expect(factory.connect(padOwner).createLaunchpad('', '', PRESET.STANDARD))
+    await expect(factory.connect(padOwner).createLaunchpad('', '', PRESET.STANDARD, POLICY.OWNER_ONLY))
       .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-    await expect(factory.connect(padOwner).createLaunchpad('x'.repeat(65), '', PRESET.STANDARD))
+    await expect(factory.connect(padOwner).createLaunchpad('x'.repeat(65), '', PRESET.STANDARD, POLICY.OWNER_ONLY))
       .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-    await expect(factory.connect(padOwner).createLaunchpad('ok', 'x'.repeat(257), PRESET.STANDARD))
+    await expect(factory.connect(padOwner).createLaunchpad('ok', 'x'.repeat(257), PRESET.STANDARD, POLICY.OWNER_ONLY))
       .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-    await expect(factory.connect(padOwner).createLaunchpad('x'.repeat(64), 'x'.repeat(256), PRESET.STANDARD))
+    await expect(factory.connect(padOwner).createLaunchpad('x'.repeat(64), 'x'.repeat(256), PRESET.STANDARD, POLICY.OWNER_ONLY))
       .to.not.be.reverted;
   });
 
@@ -82,10 +82,10 @@ describe('LaunchpadFactory', () => {
       const router = await ethers.getContractFactory('FeeRouter');
 
       expect(await factory.supportsNvdaReserve()).to.equal(false);
-      await expect(factory.connect(padOwner).createLaunchpad('Nope', '', PRESET.NVDA))
+      await expect(factory.connect(padOwner).createLaunchpad('Nope', '', PRESET.NVDA, POLICY.OWNER_ONLY))
         .to.be.revertedWithCustomError(router, 'ZeroAddress');
       // Standard pads still work, so the factory is degraded rather than dead.
-      await expect(factory.connect(padOwner).createLaunchpad('Fine', '', PRESET.STANDARD))
+      await expect(factory.connect(padOwner).createLaunchpad('Fine', '', PRESET.STANDARD, POLICY.OWNER_ONLY))
         .to.not.be.reverted;
     });
 

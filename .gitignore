@@ -72,3 +72,6 @@ Thumbs.db
 tmp/
 .tmp/
 *.local
+
+# Regenerated on every end-to-end run
+web/e2e/*.png

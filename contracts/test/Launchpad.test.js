@@ -31,9 +31,9 @@ describe('Launchpad', () => {
   describe('launchToken', () => {
     it('deploys a fixed-supply token owned entirely by the pad owner', async () => {
       const { pad, padOwner } = await loadFixture(withPad);
-      const expected = ethers.parseEther('1000000');
+      const expected = ethers.parseEther('1000000000');
 
-      await expect(pad.connect(padOwner).launchToken('Alpha', 'ALPHA', 1_000_000n))
+      await expect(pad.connect(padOwner).launchToken('Alpha', 'ALPHA'))
         .to.emit(pad, 'TokenLaunched');
 
       expect(await pad.tokenCount()).to.equal(1);
@@ -49,44 +49,35 @@ describe('Launchpad', () => {
 
     it('is owner-only', async () => {
       const { pad, stranger } = await loadFixture(withPad);
-      await expect(pad.connect(stranger).launchToken('Sneak', 'SNK', 1n))
+      await expect(pad.connect(stranger).launchToken('Sneak', 'SNK'))
         .to.be.revertedWithCustomError(pad, 'NotOwner');
       expect(await pad.tokenCount()).to.equal(0);
     });
 
     it('validates token metadata', async () => {
       const { pad, padOwner } = await loadFixture(withPad);
-      await expect(pad.connect(padOwner).launchToken('', 'SYM', 1n))
+      await expect(pad.connect(padOwner).launchToken('', 'SYM'))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-      await expect(pad.connect(padOwner).launchToken('Name', '', 1n))
+      await expect(pad.connect(padOwner).launchToken('Name', ''))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-      await expect(pad.connect(padOwner).launchToken('x'.repeat(65), 'SYM', 1n))
+      await expect(pad.connect(padOwner).launchToken('x'.repeat(65), 'SYM'))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
-      await expect(pad.connect(padOwner).launchToken('Name', 'x'.repeat(12), 1n))
+      await expect(pad.connect(padOwner).launchToken('Name', 'x'.repeat(12)))
         .to.be.revertedWithCustomError(pad, 'InvalidMetadata');
     });
 
-    it('validates supply bounds', async () => {
-      const { pad, padOwner } = await loadFixture(withPad);
-      await expect(pad.connect(padOwner).launchToken('Name', 'SYM', 0n))
-        .to.be.revertedWithCustomError(pad, 'InvalidSupply');
-      await expect(pad.connect(padOwner).launchToken('Name', 'SYM', 1_000_000_000_001n))
-        .to.be.revertedWithCustomError(pad, 'InvalidSupply');
-      await expect(pad.connect(padOwner).launchToken('Name', 'SYM', 1_000_000_000_000n))
-        .to.not.be.reverted;
-    });
 
-    it('scales whole tokens to 18 decimals without overflow at the cap', async () => {
+    it('always mints the fixed 1,000,000,000 x 18 decimal supply', async () => {
       const { pad, padOwner } = await loadFixture(withPad);
-      await pad.connect(padOwner).launchToken('Max', 'MAX', 1_000_000_000_000n);
+      await pad.connect(padOwner).launchToken('Fixed', 'FIX');
       const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
-      expect(await token.totalSupply()).to.equal(10n ** 30n);
+      expect(await token.totalSupply()).to.equal(10n ** 27n);
     });
 
     it('tracks and paginates launched tokens', async () => {
       const { pad, padOwner } = await loadFixture(withPad);
       for (let i = 0; i < 4; i += 1) {
-        await pad.connect(padOwner).launchToken(`Token ${i}`, `T${i}`, 1000n);
+        await pad.connect(padOwner).launchToken(`Token ${i}`, `T${i}`);
       }
       const all = await pad.tokensPage(0, 50);
       expect(all).to.have.lengthOf(4);
@@ -99,7 +90,7 @@ describe('Launchpad', () => {
   describe('honesty boundary', () => {
     it('does not make launched tokens pay the fee router (no on-chain market exists yet)', async () => {
       const { pad, padOwner, router, stranger } = await loadFixture(withPad);
-      await pad.connect(padOwner).launchToken('Alpha', 'ALPHA', 1_000_000n);
+      await pad.connect(padOwner).launchToken('Alpha', 'ALPHA');
       const token = await ethers.getContractAt('LaunchToken', await pad.tokens(0));
 
       await token.connect(padOwner).transfer(stranger.address, ethers.parseEther('1000'));

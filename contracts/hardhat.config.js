@@ -19,7 +19,33 @@ module.exports = {
   },
   networks: {
     hardhat: {
-      chainId: 31337,
+      // Overridable so the browser end-to-end test can run a local node that reports the
+      // Robinhood testnet chain id, exercising the app's real network-detection path.
+      // This changes nothing about a deployment: it only affects `npx hardhat node`/tests.
+      chainId: Number(process.env.HARDHAT_CHAIN_ID || 31337),
+      // Mainnet-fork mode, opt-in via FORK_RPC. Off by default so the normal suite stays
+      // hermetic and CI never depends on a third-party RPC.
+      //   FORK_RPC=https://rpc.mainnet.chain.robinhood.com npm run test:fork
+      forking: process.env.FORK_RPC
+        ? {
+          url: process.env.FORK_RPC,
+          ...(process.env.FORK_BLOCK ? { blockNumber: Number(process.env.FORK_BLOCK) } : {}),
+        }
+        : undefined,
+      // Robinhood Chain is not a chain Hardhat ships history for, so executing against forked
+      // historical state needs an explicit hardfork activation. Without this, any eth_call at the
+      // fork block fails with "No known hardfork for execution on historical block".
+      chains: {
+        4663: { hardforkHistory: { cancun: 0 } },
+        46630: { hardforkHistory: { cancun: 0 } },
+      },
+    },
+    localhost: {
+      url: 'http://127.0.0.1:8545',
+      chainId: Number(process.env.HARDHAT_CHAIN_ID || 31337),
+      // A forked node can take minutes to serve a heavy transaction while it pulls state from the
+      // upstream RPC. The default client timeout gives up long before that.
+      timeout: 600000,
     },
     robinhoodTestnet: {
       url: process.env.RH_TESTNET_RPC || 'https://rpc.testnet.chain.robinhood.com',
