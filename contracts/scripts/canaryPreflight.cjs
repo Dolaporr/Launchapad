@@ -9,7 +9,7 @@
  *   npx hardhat run scripts/canaryPreflight.cjs --network robinhood
  *
  * Optional:
- *   MAX_ETH_BUDGET=0.02   total spend ceiling; abort if the estimate exceeds it (default 0.02)
+ *   MAX_ETH_BUDGET=0.006  total spend ceiling; abort if the estimate exceeds it (default 0.006)
  *   CANARY_BUY_ETH=0.001  the size of the proving buy (default 0.001)
  *   BASELINE=path.json    compare dependency codehashes against a recorded baseline
  *   WRITE_BASELINE=1      write the observed codehashes to BASELINE instead of comparing
@@ -75,7 +75,7 @@ async function main() {
   const { ethers } = hre;
   const provider = ethers.provider;
 
-  const maxBudget = ethers.parseEther(process.env.MAX_ETH_BUDGET || '0.02');
+  const maxBudget = ethers.parseEther(process.env.MAX_ETH_BUDGET || '0.006');
   const buyAmount = ethers.parseEther(process.env.CANARY_BUY_ETH || '0.001');
 
   console.log('='.repeat(78));
@@ -256,31 +256,36 @@ async function main() {
   console.log(`        maxFeePerGas ${ethers.formatUnits(fee.maxFeePerGas ?? 0n, 'gwei')} gwei`);
   record(gasPrice != null && gasPrice > 0n, 'a gas price is available from the node', `${gasPrice}`);
 
-  // Deployment gas comes from the compiled artifacts, so it needs no signer and no funds.
-  const deployGas = {};
-  for (const name of ['LaunchpadFactory', 'LaunchpadFamilyLauncher', 'LaunchpadRewards']) {
-    const artifact = await hre.artifacts.readArtifact(name);
-    // Intrinsic cost of the creation transaction: 21000 + calldata + a deployment allowance.
-    // Estimating precisely needs a funded signer, so this is a documented upper-bound model.
-    const bytes = (artifact.bytecode.length - 2) / 2;
-    deployGas[name] = 21000n + BigInt(bytes) * 16n + BigInt(bytes) * 200n;
-    console.log(`        ${name.padEnd(26)} ${bytes} bytes  ~${deployGas[name]} gas (modelled)`);
+  // Every one of these was MEASURED by scripts/canaryRehearsal.cjs executing the identical
+  // sequence against a Robinhood Chain mainnet fork, through Uniswap's real contracts. They are
+  // not modelled from bytecode size. Re-run the rehearsal and paste its table if the code changes.
+  const MEASURED_CANARY_GAS = {
+    deployFactory: 2771806n,
+    deployLauncher: 1834285n,
+    deployRewards: 841432n,
+    createLaunchpad: 1895007n,
+    marketLaunch: 1234753n,
+    provingBuy: 165622n,
+    collectFees: 225806n,
+    collectAndSplit: 186484n,
+    withdraw_creator: 35290n,
+    withdraw_padOwner: 35290n,
+    withdraw_treasury: 32072n,
+  };
+  for (const [name, used] of Object.entries(MEASURED_CANARY_GAS)) {
+    console.log(`        ${name.padEnd(20)} ${String(used).padStart(9)} gas (measured on fork)`);
   }
 
-  // Measured on the Milestone 2.5 fork run, not modelled.
-  const MEASURED_FORK_GAS = {
-    createLaunchpad: 1_150_000n,
-    marketLaunch: 4_200_000n,
-    collectAndSplit: 260_000n,
-    withdraw: 40_000n,
-  };
-  const totalGas = Object.values(deployGas).reduce((a, b) => a + b, 0n)
-    + Object.values(MEASURED_FORK_GAS).reduce((a, b) => a + b, 0n)
-    + MEASURED_FORK_GAS.withdraw * 2n; // three withdrawals in total
+  const rawGas = Object.values(MEASURED_CANARY_GAS).reduce((a, b) => a + b, 0n);
+  // Mainnet gas can exceed a fork measurement (different state, warm/cold slots, basefee moves
+  // between our estimate and inclusion). Budget with headroom rather than at the measured edge.
+  const SAFETY_NUMERATOR = 150n; // +50%
+  const totalGas = (rawGas * SAFETY_NUMERATOR) / 100n;
   const gasCost = totalGas * (gasPrice ?? 0n);
   const estimatedTotal = gasCost + buyAmount;
 
-  console.log(`\n        total gas (modelled + fork-measured) ${totalGas}`);
+  console.log(`\n        measured gas total                   ${rawGas}`);
+  console.log(`        with +50% safety margin              ${totalGas}`);
   console.log(`        gas cost at current price            ${ethers.formatEther(gasCost)} ETH`);
   console.log(`        proving buy                          ${ethers.formatEther(buyAmount)} ETH`);
   console.log(`        ESTIMATED TOTAL                      ${ethers.formatEther(estimatedTotal)} ETH`);
