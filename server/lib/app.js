@@ -51,6 +51,7 @@ export class App {
     chainId = 4663,
     origin = 'https://launchpad.family',
     adminToken = null,
+    contracts = {},
   }) {
     this.registry = registry ?? new Registry(':memory:');
     this.branding = branding ?? new BrandingStore(':memory:');
@@ -60,6 +61,13 @@ export class App {
     this.chainId = chainId;
     this.origin = origin;
     this.adminToken = adminToken;
+    // Addresses the client needs to transact. They are ADDRESSES only: the client
+    // reads every economic value from these contracts, never from this config.
+    this.contracts = {
+      factory: contracts.factory ?? null,
+      launcher: contracts.launcher ?? null,
+      rewards: contracts.rewards ?? null,
+    };
     /** Single-use signing challenges: nonce -> {address, action, expiresAt}. */
     this.nonces = new Map();
   }
@@ -251,6 +259,7 @@ export class App {
         origin: this.origin,
         accentColors: ACCENT_COLORS,
         padSlug: padSlug ?? null,
+        contracts: this.contracts,
       });
     }
 
