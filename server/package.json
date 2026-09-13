@@ -1,0 +1,14 @@
+{
+  "name": "launchpad-family-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Launchpad.family V1 \u2014 hosted launchpad builder. No runtime dependencies: node:http and node:sqlite are built in.",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/**/*.test.js\"",
+    "start": "node index.js"
+  }
+}
