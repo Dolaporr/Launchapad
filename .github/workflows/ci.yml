@@ -73,6 +73,12 @@ jobs:
         working-directory: contracts
         run: npm ci
 
+      # The same tests deploy a real Launchpad from its compiled artifact, so the
+      # contracts have to be built, not merely installed.
+      - name: Compile the contracts those tests deploy
+        working-directory: contracts
+        run: npm run compile
+
       # pipefail matters: without it `tee` supplies the exit status and a failing
       # test suite would report green.
       - name: Test

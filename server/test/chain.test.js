@@ -39,11 +39,26 @@ test('decodes a dynamic string return', () => {
 
 // --- integration against a real EVM ----------------------------------------
 
+/**
+ * Kills a spawned node and everything it spawned.
+ *
+ * `npx hardhat node` runs the real node behind a wrapper, so killing the child
+ * we hold leaves the node alive and still bound to the port. Spawning detached
+ * puts the whole tree in its own process group, and killing the negated pid
+ * takes the group. Without this the suite leaves an orphan holding port 8546,
+ * and the next run cannot start.
+ */
+function killTree(child) {
+  try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ }
+  try { child.kill('SIGKILL'); } catch { /* already gone */ }
+}
+
 /** Spawns a plain hardhat node and resolves once it is accepting requests. */
 async function startNode(port) {
   const child = spawn('npx', ['hardhat', 'node', '--hostname', '127.0.0.1', '--port', String(port)], {
     cwd: CONTRACTS_DIR,
     stdio: 'ignore',
+    detached: true,
     env: { ...process.env, FORK_RPC: '' },
   });
   const url = `http://127.0.0.1:${port}`;
@@ -60,7 +75,7 @@ async function startNode(port) {
     } catch { /* not up yet */ }
     await new Promise((resolve) => { setTimeout(resolve, 500); });
   }
-  child.kill('SIGKILL');
+  killTree(child);
   throw new Error('hardhat node did not start');
 }
 
@@ -76,7 +91,7 @@ test('signature recovery and pad reads against a real EVM', { timeout: 180000 },
     t.skip(`could not start a local node: ${e.message}`);
     return;
   }
-  t.after(() => { node.child.kill('SIGKILL'); });
+  t.after(() => killTree(node.child));
 
   const reader = new ChainReader({ rpcUrl: node.url });
 
