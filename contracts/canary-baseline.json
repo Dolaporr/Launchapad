@@ -1,0 +1,42 @@
+{
+  "recordedAt": "2026-09-13T08:01:36.689Z",
+  "chainId": "4663",
+  "block": 61799059,
+  "observed": {
+    "liquidityLauncher": {
+      "address": "0x0000FffFBE8efE702c8703aE3477FF5dE3d319C0",
+      "codehash": "0x4a586d925c9d59ece13ce2239ebd7dea9ee725f9d33c6667e0fd16ae8d977d80",
+      "size": 4127
+    },
+    "instantLaunchStrategy": {
+      "address": "0x23f8209572b4a1C2AD88A42749E830791Fb027f1",
+      "codehash": "0x29df27cf43533e9b3708dcd2a2c0fd17a1a8796407e7d39375f47e5c809cffca",
+      "size": 10822
+    },
+    "feeSplitter": {
+      "address": "0xeFF166AAf189323c58dc27eD1206EB2C37FaACDf",
+      "codehash": "0x8238e5106b3a895514083110d1f3b4e51be61148604f35113719af56ae325f42",
+      "size": 7260
+    },
+    "beneficiaryVault": {
+      "address": "0xd35E9CA72F64C7F93BE30fad67524323396B36D7",
+      "codehash": "0x725412bf002214373afc095b0b9e4c756b1d12ac37d5c7dfe1667db4385403b6",
+      "size": 6392
+    },
+    "positionManager": {
+      "address": "0x58daec3116aae6D93017bAAea7749052E8a04fA7",
+      "codehash": "0xc873e135dc9aaec88489cfbad146b4cb49d6a32e0d80326377784b7ba17670b2",
+      "size": 23877
+    },
+    "poolManager": {
+      "address": "0x8366a39CC670B4001A1121B8F6A443A643e40951",
+      "codehash": "0xbd3881180b547f5fe817545743cfb4343e96b1bc6640dcd70c106b0066e95626",
+      "size": 24009
+    },
+    "universalRouter": {
+      "address": "0x06AfBA43Fd06227fA663b0DAecF536f6EaA6bf99",
+      "codehash": "0xbe8e8191bb42d843c2e948a5a55772eaab864ce01e54dcd47c9d089170b302d5",
+      "size": 24546
+    }
+  }
+}
