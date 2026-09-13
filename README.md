@@ -256,7 +256,8 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
 | NVDA purchase | **Does not exist.** Not started. |
 | 1% fee enforcement | **Not enforced** on the `FeeRouter` path — it has no market. The market path (Milestone 2.5) earns instead through Uniswap's own creator-fee stream, which is enforced by the pool. |
 | Trading / bonding curve | **No bonding curve, by design.** Real trading comes from a Uniswap v4 pool created at launch. `Launchpad.launchToken` still mints 100% to the creator and creates **no market** — it is not the production path, and `verifyMarketLaunch` returns false for anything it produces. |
-| Market contracts on chain | **Not deployed.** Uniswap's Liquidity Launchpad exists only on mainnet (4663), so these can be exercised only against mainnet or a mainnet fork. |
+| Market contracts on chain | **Deployed on mainnet by the canary.** See the baseline record. One token only; no second launch without approval. |
+| Real-user validation | **None.** The canary's creator and pad owner were our own wallets. The one third-party trade was permissionless bot activity, NOT evidence of demand. |
 | NVDA Reserve in the live UI | **Deliberately not offered.** Canonical NVDA does not exist on testnet, so an NVDA pad created there could not do what its name claims. The preset still exists in the contracts. |
 | Standard economics | **Alpha default, not final product policy.** 0.60% / 0.50% / 0.10% is a placeholder chosen for legibility, not validated against any market. |
 | Launchpad re-branding | `name`/`metadataURI` are fixed at creation; re-brand by re-publishing the content behind the URI. |
@@ -270,7 +271,17 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
 1. **Milestone 1 — DONE, live on public Robinhood Chain testnet (chain 46630).**
    See "Live deployment" below. Wallet A created an Open launchpad; wallet B — a different
    wallet — launched a token through it and holds 100% of its supply.
-2. **Milestone 2 + 2.5 — BUILT AND VALIDATED ON A MAINNET FORK. Not deployed.**
+2. **Milestone 3 — MAINNET CANARY EXECUTED, then productised.**
+   One controlled canary ran on Robinhood Chain mainnet on 2026-09-13: `$CANARY`
+   ([`0xe848A44B…d7F4`](https://robinhoodchain.blockscout.com/address/0xe848A44Bb9ab5Fc9788e2E6D64b5CbBDd114d7F4))
+   launched into a real Uniswap v4 pool with liquidity permanently locked, and fees split
+   50 / 30 / 20 to three genuinely distinct wallets. It is frozen as the proven baseline and
+   re-verifies from chain at **33/33 checks**, reconciling every token unit and every wei.
+   On top of it: a deterministic verification command, a launch-record schema, and a product
+   layer that shows one launch as Token → Pool → Locked Liquidity → Trading → Fees → Revenue.
+   See [`docs/verification-and-product-layer.md`](docs/verification-and-product-layer.md).
+   **No second token has been launched and no further mainnet write is planned.**
+3. **Milestone 2 + 2.5 — built and validated on a mainnet fork; superseded by the canary above.**
    `LaunchpadFamilyLauncher` + `LaunchpadRewards` launch a token straight into a real Uniswap v4
    pool via Robinhood Chain's official Liquidity Launchpad, with liquidity permanently locked and
    the creator-fee stream split **50 / 30 / 20** between token creator, launchpad owner and
@@ -279,10 +290,10 @@ Before any reserve number may be shown to a user as a reserve, all four must exi
    beneficiary vault). Sells pay their fee in the token and earn us nothing.
    See [`docs/milestone-2-market-architecture.md`](docs/milestone-2-market-architecture.md).
    **No mainnet transaction has been sent.**
-3. **Milestone 3:** the constrained NVDA buyer module — swap into canonical NVDA only, enforce
+4. **Next:** the constrained NVDA buyer module — swap into canonical NVDA only, enforce
    minimum output, deposit into `ReserveVault`, emit an explorer-verifiable trail. Mainnet-only,
    since canonical NVDA does not exist on testnet.
-4. **Then, and only then:** the general launchpad-building platform.
+5. **Then, and only then:** the general launchpad-building platform.
 
 ## Live deployment — Robinhood Chain testnet (chain 46630)
 

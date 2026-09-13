@@ -94,7 +94,7 @@ describeFork('FORK: deterministic launch verification', function () {
     // canary's assertions failed because they assumed we were the only trader.
     before(async () => {
       await router.connect(stranger).buyExactIn(poolKeyFor(token), ethers.parseEther('0.5'),
-        { value: ethers.parseEther('0.5') });
+        stranger.address, { value: ethers.parseEther('0.5') });
     });
 
     it('still reconciles every base unit of supply', async () => {
@@ -131,9 +131,9 @@ describeFork('FORK: deterministic launch verification', function () {
   describe('REGRESSION: fee reconciliation with MULTIPLE buyers', () => {
     before(async () => {
       await router.connect(ourBuyer).buyExactIn(poolKeyFor(token), ethers.parseEther('1'),
-        { value: ethers.parseEther('1') });
+        ourBuyer.address, { value: ethers.parseEther('1') });
       await router.connect(secondStranger).buyExactIn(poolKeyFor(token), ethers.parseEther('0.25'),
-        { value: ethers.parseEther('0.25') });
+        secondStranger.address, { value: ethers.parseEther('0.25') });
       await collectAndSplit();
     });
 
@@ -185,7 +185,7 @@ describeFork('FORK: deterministic launch verification', function () {
     before(async () => {
       before1 = await run();
       await router.connect(stranger).buyExactIn(poolKeyFor(token), ethers.parseEther('0.75'),
-        { value: ethers.parseEther('0.75') });
+        stranger.address, { value: ethers.parseEther('0.75') });
       await collectAndSplit();
     });
 
