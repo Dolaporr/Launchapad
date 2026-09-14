@@ -26,6 +26,7 @@ import { ChainReader } from './chain.js';
 import { slugFromHost, validateSlug, metadataUriFor, slugFromMetadataUri } from './slug.js';
 import { padMetrics, rankPads } from './metrics.js';
 import { buildExport, buildTar, githubStatus } from './export.js';
+import { validate as validateRead, RateLimiter } from './readGateway.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -74,6 +75,8 @@ export class App {
     /** Single-use signing challenges: nonce -> {address, action, expiresAt}. */
     this.indexer = indexer;
     this.nonces = new Map();
+    // Lets a visitor with no wallet READ the chain. Signing still needs a wallet.
+    this.readLimiter = new RateLimiter();
   }
 
   // --- helpers --------------------------------------------------------------
@@ -307,6 +310,38 @@ export class App {
     // --- read ---------------------------------------------------------------
     if (method === 'GET' && route === '/health') {
       return this.json(res, 200, { ok: true, apex: this.apex, chainId: this.chainId });
+    }
+
+    // Read-only chain access for visitors with no injected wallet.
+    //
+    // Reading Launchpad.family used to require a wallet, because every chain read
+    // went through window.ethereum. A wallet is for signing; public chain state is
+    // public. This forwards a narrow, allowlisted set of READ calls and refuses
+    // everything else — see readGateway.js for the three limits it enforces.
+    if (method === 'POST' && route === '/chain/read') {
+      if (!this.chain) return this.json(res, 503, { error: 'no_rpc_configured' });
+
+      const key = req.socket?.remoteAddress || 'unknown';
+      const limit = this.readLimiter.take(key);
+      if (!limit.ok) {
+        res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
+        return this.json(res, 429, { error: 'rate_limited' });
+      }
+
+      let body;
+      try { body = await this.body(req); } catch { return this.json(res, 400, { error: 'bad_json' }); }
+
+      const verdict = validateRead(body);
+      if (!verdict.ok) return this.json(res, 403, { error: verdict.error });
+
+      try {
+        const result = await this.chain.rpc(verdict.method, verdict.params);
+        return this.json(res, 200, { result });
+      } catch (error) {
+        // Surfaced as a read failure so the client can render "not established"
+        // rather than inventing a value.
+        return this.json(res, 502, { error: 'upstream_read_failed', message: error.message });
+      }
     }
 
     if (method === 'GET' && route === '/config') {

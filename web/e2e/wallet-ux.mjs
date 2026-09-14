@@ -42,13 +42,15 @@ const pageErrors = [];
  * A page with NO wallet. `window.ethereum` is deleted after load so the app sees
  * exactly what a stock mobile browser presents.
  */
-async function openBare(hostname, deviceName, { secure = true } = {}) {
+async function openBare(hostname, deviceName, { secure = true, recordErrors = true } = {}) {
   const context = await browser.newContext(deviceName ? devices[deviceName] : {});
   const page = await context.newPage();
-  page.on('pageerror', (e) => pageErrors.push(`${hostname}: ${e.message}`));
-  page.on('console', (m) => {
-    if (m.type() === 'error') pageErrors.push(`${hostname} console: ${m.text()}`);
-  });
+  if (recordErrors) {
+    page.on('pageerror', (e) => pageErrors.push(`${hostname}: ${e.message}`));
+    page.on('console', (m) => {
+      if (m.type() === 'error') pageErrors.push(`${hostname} console: ${m.text()}`);
+    });
+  }
   await page.addInitScript((isSecure) => {
     try { delete window.ethereum; } catch { window.ethereum = undefined; }
     // This harness serves plain http on a non-localhost host, so the browser
@@ -235,6 +237,117 @@ if (!PAD_SLUG) {
   }
   await pad.screenshot({ path: `${SHOT_DIR}wallet-pad.png`, fullPage: false });
 }
+
+// ---------------------------------------------------------------------------
+section('8. No wallet: the builder reads real economics and reaches Preview');
+
+const { page: build } = await openBare(APEX, 'iPhone 13');
+await build.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await build.waitForTimeout(2000);
+
+check('no wallet is injected on this page',
+  await build.evaluate(() => window.ethereum === undefined));
+
+// Identity — the slug check is server-side and never needed a wallet.
+await build.fill('#padName', 'Safari Test');
+await build.waitForTimeout(1200);
+const availability = await build.locator('#slugHint').innerText();
+check('a name can be checked for availability with no wallet',
+  /Available/i.test(availability), availability.trim());
+
+await build.click('#toRules');
+await build.waitForTimeout(400);
+await build.click('#policyOpen');
+await build.waitForTimeout(200);
+await build.click('#toModel');
+await build.waitForTimeout(2500);
+
+const modelText = await build.locator('body').innerText();
+check('the launch model renders instead of a read failure',
+  /The launch model/i.test(modelText)
+  && !/could not be read from the contracts/i.test(modelText));
+check('it states the split read from chain',
+  /50%/.test(modelText) && /30%/.test(modelText) && /20%/.test(modelText));
+check('it says the figures were read live from the contracts',
+  /Read live from/i.test(modelText));
+
+// The numbers must come from the chain, not from the page. Read the same three
+// values independently through the gateway and require them to agree.
+const onchain = await build.evaluate(async () => {
+  // Config is fetched from inside the page: the apex hostname only resolves in
+  // this browser, which is given resolver rules Node does not have.
+  const rewards = (await (await fetch('/api/config')).json()).contracts.rewards;
+  const call = async (data) => {
+    const r = await fetch('/api/chain/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method: 'eth_call', params: [{ to: rewards, data }, 'latest'] }),
+    });
+    const j = await r.json();
+    return j.result ? Number(BigInt(j.result)) : null;
+  };
+  return {
+    creator: await call('0x45904567'),
+    padOwner: await call('0xc833d8d4'),
+    protocol: await call('0xc1e7af35'),
+  };
+});
+
+check('the split really is on mainnet as 50/30/20 bps-wise',
+  onchain.creator === 5000 && onchain.padOwner === 3000 && onchain.protocol === 2000,
+  JSON.stringify(onchain));
+
+const continueBtn = build.locator('#toPreview');
+check('Continue to Preview is enabled without a wallet',
+  await continueBtn.count() === 1 && !(await continueBtn.isDisabled()));
+
+await continueBtn.click();
+await build.waitForTimeout(1200);
+const previewText = await build.locator('body').innerText();
+check('Preview is reachable with no wallet', /preview/i.test(previewText));
+check('the preview shows the future address',
+  new RegExp(`safari-test\\.${APEX.replace('.', '\\.')}`).test(previewText));
+
+await build.screenshot({ path: `${SHOT_DIR}wallet-builder-model.png`, fullPage: false });
+
+// ...and only here does a wallet become necessary.
+const toCreate = build.locator('#toCreate');
+if (await toCreate.count()) {
+  await toCreate.click();
+  await build.waitForTimeout(900);
+}
+const createText = await build.locator('body').innerText();
+check('Create is where a wallet is finally required',
+  /wallet is needed|Connect your wallet|Connect wallet/i.test(createText));
+check('and it offers a way to connect rather than dead-ending',
+  await build.locator('[data-wallet-open]').count() > 0);
+
+// ---------------------------------------------------------------------------
+section('9. Fail closed: an unreadable chain shows "not established"');
+
+// Errors are not recorded for this page: the 502s below are induced by the test
+// itself, and counting them would make the fault injection look like a defect.
+const { page: blind } = await openBare(APEX, 'iPhone 13', { recordErrors: false });
+// Break only the read gateway, leaving the rest of the site working.
+await blind.route('**/api/chain/read', (r) => r.fulfill({
+  status: 502, contentType: 'application/json', body: '{"error":"upstream_read_failed"}',
+}));
+await blind.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await blind.waitForTimeout(1500);
+await blind.fill('#padName', 'Fail Closed');
+await blind.waitForTimeout(1200);
+await blind.click('#toRules');
+await blind.waitForTimeout(300);
+await blind.click('#toModel');
+await blind.waitForTimeout(2000);
+
+const blindText = await blind.locator('body').innerText();
+check('it says the model could not be read',
+  /could not be read from the contracts/i.test(blindText));
+check('it never invents a split', !/50%/.test(blindText) && !/30%/.test(blindText));
+const blindContinue = blind.locator('#toPreview');
+check('and refuses to continue on unverified economics',
+  await blindContinue.count() === 1 && await blindContinue.isDisabled());
 
 // ---------------------------------------------------------------------------
 section('7. An insecure page says so, instead of looping the visitor');

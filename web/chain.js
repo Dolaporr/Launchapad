@@ -329,10 +329,76 @@ export function describeError(error) {
   return message.length > 220 ? `${message.slice(0, 220)}…` : message;
 }
 
+/**
+ * A request that CHANGES something, or that is about the wallet itself.
+ *
+ * Requires a wallet by definition: there is nothing to sign with otherwise.
+ */
 export async function request(method, params = []) {
   const provider = getProvider();
   if (!provider) throw new WalletError('No EVM wallet found in this browser.', 'NO_WALLET');
   return provider.request({ method, params });
+}
+
+// ---------------------------------------------------------------------------
+// Reads do not need a wallet.
+//
+// A wallet is for signing. Public chain state is public, and requiring an
+// extension to read it left every mobile visitor unable to see the fee split,
+// a pad's state, or a launch proof. Reads therefore prefer the injected
+// provider when one exists — same data, one less hop — and otherwise go through
+// the server's allowlisted read gateway.
+//
+// If BOTH fail the read fails. It never falls back to a remembered or assumed
+// value: a figure that cannot be verified must render as "not established".
+// ---------------------------------------------------------------------------
+
+/** Set false in tests to force the gateway path. */
+let preferInjectedForReads = true;
+export function setPreferInjectedForReads(value) { preferInjectedForReads = Boolean(value); }
+
+export class ReadError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'ReadError';
+    this.code = code;
+  }
+}
+
+async function gatewayRequest(method, params) {
+  let response;
+  try {
+    response = await fetch('/api/chain/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method, params }),
+    });
+  } catch {
+    throw new ReadError('Could not reach the chain reader.', 'READ_UNREACHABLE');
+  }
+  let payload = null;
+  try { payload = await response.json(); } catch { /* non-JSON */ }
+  if (!response.ok) {
+    throw new ReadError(
+      payload?.message || payload?.error || `Chain read failed (${response.status})`,
+      payload?.error || 'READ_FAILED',
+    );
+  }
+  return payload?.result;
+}
+
+export async function readRequest(method, params = []) {
+  const provider = preferInjectedForReads ? getProvider() : null;
+  if (provider) {
+    try {
+      return await provider.request({ method, params });
+    } catch (error) {
+      // A wallet that is locked or on another chain can refuse a read the server
+      // can serve perfectly well, so fall through rather than call it unknowable.
+      return gatewayRequest(method, params);
+    }
+  }
+  return gatewayRequest(method, params);
 }
 
 export async function connect() {
@@ -394,7 +460,7 @@ export async function switchToTargetChain() {
 // and a fee claimed between two `latest` reads would make the sums disagree for
 // reasons that have nothing to do with the protocol being wrong.
 export async function ethCall(to, data, blockTag = 'latest') {
-  return request('eth_call', [{ to, data }, blockTag]);
+  return readRequest('eth_call', [{ to, data }, blockTag]);
 }
 
 export async function callUint(to, signature, args = [], blockTag = 'latest') {
@@ -682,7 +748,7 @@ export function policyLabel(policy) {
 
 /** eth_getLogs through the injected provider. Throws rather than returning partial data. */
 export async function getLogs({ address, topics, fromBlock, toBlock = 'latest' }) {
-  return request('eth_getLogs', [{
+  return readRequest('eth_getLogs', [{
     address,
     topics,
     fromBlock: typeof fromBlock === 'number' ? `0x${fromBlock.toString(16)}` : fromBlock,
@@ -691,7 +757,7 @@ export async function getLogs({ address, topics, fromBlock, toBlock = 'latest' }
 }
 
 export async function getBlockNumber() {
-  return Number(BigInt(await request('eth_blockNumber')));
+  return Number(BigInt(await readRequest('eth_blockNumber')));
 }
 
 const topicToAddress = (t) => `0x${strip(t).slice(24)}`;
