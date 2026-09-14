@@ -321,7 +321,17 @@ export function describeError(error) {
     return 'You rejected the request in your wallet.';
   }
   if (code === 4902) return 'That network is not in your wallet yet.';
-  if (code === -32002) return 'Your wallet already has a pending request. Open it and respond.';
+  if (code === 'REQUEST_IN_FLIGHT') {
+    return `${error.message} Wait for it to finish, or reopen your wallet, then retry.`;
+  }
+  // Deliberately does NOT claim a prompt is on screen. Wallets report -32002 for
+  // requests they are holding internally, including ones they never showed or
+  // have already dropped from their UI, so "open it and respond" sends people
+  // looking for something that may not exist.
+  if (code === -32002) {
+    return 'Your wallet reports that another request is already pending. It may not be '
+      + 'visible — check your wallet, then retry in a moment.';
+  }
   const message = error?.data?.message || error?.message || String(error);
   if (/insufficient funds/i.test(message)) {
     return `This wallet has no ETH on ${TARGET_CHAIN.chainName} for gas. `
@@ -339,6 +349,78 @@ export async function request(method, params = []) {
   const provider = getProvider();
   if (!provider) throw new WalletError('No EVM wallet found in this browser.', 'NO_WALLET');
   return provider.request({ method, params });
+}
+
+// ---------------------------------------------------------------------------
+// One wallet prompt at a time.
+//
+// A wallet serialises the requests that need a human — connect, switch network,
+// sign, send — and answers -32002 to anything that arrives while one is open.
+// The painful part is that the pending request is often INVISIBLE: a connect
+// prompt dismissed by a mobile browser's app switch can stay queued inside the
+// wallet with nothing on screen, and the next action then fails with -32002 and
+// no prompt for the person to answer. Telling them to "open it and respond"
+// sends them looking for something that is not there.
+//
+// So the app tracks its own in-flight prompt and refuses to start a second one.
+// That cannot fix a request the wallet is holding from before, but it stops this
+// app from ever being the cause, and it lets the UI say something true.
+//
+// Only the PROMPTING call is held. Waiting for a receipt is a read and can take
+// minutes; holding the lock across it would block the wallet for no reason.
+// ---------------------------------------------------------------------------
+
+export const WALLET_REQUEST = {
+  CONNECT: 'connect',
+  SWITCH_NETWORK: 'switch-network',
+  TRANSACTION: 'transaction',
+  SIGNATURE: 'signature',
+};
+
+let inFlight = null;
+
+/** The prompt this app is currently waiting on, or null. */
+export function pendingWalletRequest() {
+  return inFlight ? { ...inFlight, elapsedMs: Date.now() - inFlight.startedAt } : null;
+}
+
+/** Non-sensitive breadcrumbs: kind, timing and error code only — never addresses or calldata. */
+function diag(event, detail) {
+  if (typeof console === 'undefined') return;
+  console.info(`[wallet] ${event}`, detail);
+}
+
+/**
+ * Runs one wallet prompt, refusing to overlap with another.
+ *
+ * @param {string} kind one of WALLET_REQUEST
+ */
+export async function walletMutation(kind, run) {
+  if (inFlight) {
+    const busy = new WalletError(
+      `This page is already waiting on a ${inFlight.kind} request in your wallet.`,
+      'REQUEST_IN_FLIGHT',
+    );
+    busy.pending = pendingWalletRequest();
+    diag('rejected-overlap', { attempted: kind, holding: busy.pending });
+    throw busy;
+  }
+  inFlight = { kind, startedAt: Date.now() };
+  diag('start', { kind });
+  try {
+    const result = await run();
+    diag('ok', { kind, elapsedMs: Date.now() - inFlight.startedAt });
+    return result;
+  } catch (error) {
+    diag('failed', {
+      kind,
+      elapsedMs: Date.now() - inFlight.startedAt,
+      code: error?.code ?? error?.data?.originalError?.code ?? null,
+    });
+    throw error;
+  } finally {
+    inFlight = null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +511,9 @@ export async function readRequest(method, params = []) {
 }
 
 export async function connect() {
-  const accounts = await request('eth_requestAccounts');
+  const accounts = await walletMutation(
+    WALLET_REQUEST.CONNECT, () => request('eth_requestAccounts'),
+  );
   if (!accounts || !accounts.length) throw new WalletError('Wallet returned no accounts.', 'NO_ACCOUNTS');
   return accounts[0];
 }
@@ -458,6 +542,13 @@ export async function isOnTargetChain() {
 
 /** Switches the wallet to Robinhood Chain testnet, adding it first if the wallet lacks it. */
 export async function switchToTargetChain() {
+  // Switch-then-add is ONE logical prompt from the person's point of view, so it
+  // holds the lock across both. Releasing between them would let a Create tap
+  // slip in while the add-network sheet is still open.
+  return walletMutation(WALLET_REQUEST.SWITCH_NETWORK, () => switchOrAddChain());
+}
+
+async function switchOrAddChain() {
   try {
     await request('wallet_switchEthereumChain', [{ chainId: TARGET_CHAIN.chainIdHex }]);
     return true;
@@ -511,7 +602,9 @@ export async function callBool(to, signature, args = [], blockTag = 'latest') {
 }
 
 export async function sendTransaction({ from, to, data }) {
-  return request('eth_sendTransaction', [{ from, to, data }]);
+  return walletMutation(
+    WALLET_REQUEST.TRANSACTION, () => request('eth_sendTransaction', [{ from, to, data }]),
+  );
 }
 
 export async function getReceipt(txHash) {

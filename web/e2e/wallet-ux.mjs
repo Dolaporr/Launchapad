@@ -21,6 +21,12 @@ const { chromium, devices } = pw;
 const APEX = process.env.APEX || 'launchpad.family';
 const PORT = process.env.PORT || '4173';
 const SHOT_DIR = new URL('./', import.meta.url).pathname;
+// Must match the chain the server is configured for, or every wallet shim below
+// reads as "wrong network" and the Create step never opens.
+const CHAIN_ID = Number(process.env.CHAIN_ID || 4663);
+const CHAIN_HEX = `0x${CHAIN_ID.toString(16)}`;
+/** Switching needs a chain the client has a definition for. */
+const SWITCHABLE = CHAIN_ID === 4663 || CHAIN_ID === 46630;
 
 let failures = 0;
 const check = (label, condition, detail = '') => {
@@ -406,6 +412,280 @@ check('the foreign wallet was never asked for a value',
 // header still offers an action while the reads came from the gateway.
 check('the header still offers a connect action',
   /connect wallet/i.test(await foreign.locator('#walletSlot').innerText()));
+
+// ---------------------------------------------------------------------------
+section('11. Connecting AT the Create step updates it, with no refresh');
+
+// The manually reported bug: the builder was completed with a DISCONNECTED
+// wallet, Create showed the connection gate, connecting succeeded — and the
+// gate stayed on screen, because only the dashboard re-rendered on wallet
+// change. NO TRANSACTION IS SENT: the shim throws if one is attempted.
+const gateCtx = await browser.newContext(devices['iPhone 13']);
+const gate = await gateCtx.newPage();
+gate.on('pageerror', (e) => pageErrors.push(`create-gate: ${e.message}`));
+await gate.addInitScript((chainHex) => {
+  window.__calls = [];
+  window.__authorized = false;
+  window.__chain = chainHex;
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      window.__calls.push(method);
+      if (method === 'eth_chainId') return window.__chain;
+      if (method === 'eth_accounts') {
+        return window.__authorized ? ['0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'] : [];
+      }
+      if (method === 'eth_requestAccounts') {
+        // A real prompt takes time; the pause is what lets a second tap race it.
+        await new Promise((r) => setTimeout(r, 300));
+        window.__authorized = true;
+        return ['0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC'];
+      }
+      if (method === 'wallet_switchEthereumChain') {
+        await new Promise((r) => setTimeout(r, 200));
+        window.__chain = params[0].chainId;
+        return null;
+      }
+      // This shim cannot reach a node, so reads are deferred to the server's
+      // read gateway by failing here — the same fallback a locked wallet takes.
+      // The economics on screen are therefore the configured chain's real values.
+      if (method === 'eth_call') throw new Error('shim: use the read gateway');
+      if (method === 'eth_sendTransaction') throw new Error('TEST FAILURE: transaction attempted');
+      return null;
+    },
+    on() {}, removeListener() {},
+  };
+}, CHAIN_HEX);
+
+await gate.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await gate.waitForTimeout(1800);
+
+await gate.fill('#padName', 'Gate Test');
+await gate.waitForTimeout(1200);
+await gate.click('#toRules');
+await gate.waitForTimeout(300);
+await gate.click('#toModel');
+await gate.waitForTimeout(2500);
+await gate.click('#toPreview');
+await gate.waitForTimeout(800);
+
+const gateToCreate = gate.locator('#toCreate');
+if (await gateToCreate.count()) { await gateToCreate.click(); await gate.waitForTimeout(700); }
+
+const gateText = await gate.locator('body').innerText();
+check('Create shows the connection gate while disconnected',
+  /Connect your wallet|wallet is needed/i.test(gateText));
+check('the builder is still on its Create step, draft intact',
+  /5\. Create/i.test(gateText) || /Create/i.test(gateText));
+
+// Connect through the real UI, exactly as a person would.
+await gate.locator('[data-wallet-open]').first().click();
+await gate.waitForTimeout(400);
+await gate.locator('[data-wallet-connect]').first().click();
+// Deliberately no reload, and no extra interaction.
+await gate.waitForTimeout(2000);
+
+const afterConnect = await gate.locator('body').innerText();
+check('the gate is replaced with NO page refresh',
+  !/Connect your wallet/i.test(afterConnect), afterConnect.replace(/\s+/g, ' ').slice(0, 110));
+check('the Create confirmation is now shown',
+  /Create launchpad/i.test(afterConnect));
+check('the completed draft is preserved', /Gate Test/i.test(afterConnect));
+check('the permanence warning is on the confirmation', /permanent/i.test(afterConnect));
+
+await gate.screenshot({ path: `${SHOT_DIR}wallet-create-after-connect.png`, fullPage: false });
+
+// ---------------------------------------------------------------------------
+section('12. Wrong chain at Create: switch, then the confirmation appears');
+
+if (!SWITCHABLE) {
+  console.log(`  – skipped: chain ${CHAIN_ID} has no client-side definition to switch to`);
+} else {
+const swCtx = await browser.newContext(devices['iPhone 13']);
+const sw = await swCtx.newPage();
+await sw.addInitScript(() => {
+  window.__chain = '0x1'; // Ethereum mainnet
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      if (method === 'eth_chainId') return window.__chain;
+      if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+        return ['0x90F79bf6EB2c4f870365E785982E1f101E93b906'];
+      }
+      if (method === 'wallet_switchEthereumChain') {
+        await new Promise((r) => setTimeout(r, 200));
+        window.__chain = params[0].chainId;
+        return null;
+      }
+      // This shim cannot reach a node, so reads are deferred to the server's
+      // read gateway by failing here — the same fallback a locked wallet takes.
+      // The economics on screen are therefore the configured chain's real values.
+      if (method === 'eth_call') throw new Error('shim: use the read gateway');
+      if (method === 'eth_sendTransaction') throw new Error('TEST FAILURE: transaction attempted');
+      return null;
+    },
+    on(e, h) { (this._h = this._h || {})[e] = h; },
+    removeListener() {},
+  };
+});
+await sw.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await sw.waitForTimeout(1800);
+await sw.fill('#padName', 'Switch Test');
+await sw.waitForTimeout(1200);
+await sw.click('#toRules');
+await sw.waitForTimeout(300);
+await sw.click('#toModel');
+await sw.waitForTimeout(2500);
+await sw.click('#toPreview');
+await sw.waitForTimeout(800);
+const toCreate2 = sw.locator('#toCreate');
+if (await toCreate2.count()) { await toCreate2.click(); await sw.waitForTimeout(700); }
+
+const wrongText = await sw.locator('body').innerText();
+check('Create offers Switch network on the wrong chain',
+  /Wrong network|Switch network/i.test(wrongText),
+  wrongText.replace(/\s+/g, ' ').slice(0, 110));
+
+const gateSwitch = sw.locator('#gateSwitch');
+if (await gateSwitch.count()) {
+  await gateSwitch.click();
+} else {
+  await sw.locator('[data-wallet-open]').first().click();
+  await sw.waitForTimeout(400);
+  await sw.locator('[data-wallet-switch]').first().click();
+}
+await sw.waitForTimeout(2200);
+
+const afterSwitch = await sw.locator('body').innerText();
+check('a successful switch reveals the Create confirmation, with no refresh',
+  /Create launchpad/i.test(afterSwitch), afterSwitch.replace(/\s+/g, ' ').slice(0, 110));
+check('the draft survived the switch', /Switch Test/i.test(afterSwitch));
+}
+
+// ---------------------------------------------------------------------------
+section('13. Mobile wallet browser: repeated taps make ONE wallet request');
+
+// Its own wallet: V1 allows one hosted launchpad per wallet, so reusing the
+// journey's owner here would make the reservation legitimately refuse before
+// any wallet request could happen.
+//
+// The second reported bug. A wallet that is slow to answer, plus a person
+// tapping again, used to mean two overlapping prompts — and the wallet replies
+// -32002 to the second with nothing visible to respond to.
+const mmCtx = await browser.newContext({
+  ...devices['iPhone 13'],
+  userAgent: `${devices['iPhone 13'].userAgent} MetaMaskMobile`,
+});
+const mm = await mmCtx.newPage();
+await mm.addInitScript((chainHex) => {
+  window.__chainHex = chainHex;
+  window.__sent = [];
+  window.__methods = [];
+  window.__pendingSend = 0;
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      window.__methods.push(method);
+      if (method === 'eth_chainId') return window.__chainHex;
+      if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+        return ['0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65'];
+      }
+      // This shim cannot reach a node, so reads are deferred to the server's
+      // read gateway by failing here — the same fallback a locked wallet takes.
+      // The economics on screen are therefore the configured chain's real values.
+      if (method === 'eth_call') throw new Error('shim: use the read gateway');
+      if (method === 'eth_sendTransaction') {
+        window.__sent.push(params[0]);
+        window.__pendingSend += 1;
+        // A real wallet holds here while the person reads the prompt. Any second
+        // request arriving now is what produces -32002 in the wild.
+        if (window.__pendingSend > 1) {
+          window.__pendingSend -= 1;
+          const e = new Error('Request of type eth_sendTransaction already pending');
+          e.code = -32002;
+          throw e;
+        }
+        await new Promise((r) => setTimeout(r, 2500));
+        window.__pendingSend -= 1;   // a real wallet frees its slot once answered
+        const e = new Error('User rejected the request.');
+        e.code = 4001;               // ends the test without a real transaction
+        throw e;
+      }
+      return null;
+    },
+    on() {}, removeListener() {},
+  };
+}, CHAIN_HEX);
+await mm.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await mm.waitForTimeout(1800);
+await mm.fill('#padName', 'Tap Test');
+await mm.waitForTimeout(1200);
+await mm.click('#toRules');
+await mm.waitForTimeout(300);
+await mm.click('#toModel');
+await mm.waitForTimeout(2500);
+await mm.click('#toPreview');
+await mm.waitForTimeout(800);
+const toCreate3 = mm.locator('#toCreate');
+if (await toCreate3.count()) { await toCreate3.click(); await mm.waitForTimeout(700); }
+
+const signBtn = mm.locator('#signCreate');
+const mmStage = (await mm.locator('body').innerText()).replace(/\s+/g, ' ');
+const hasBtn = await signBtn.count() === 1;
+check('the Create button is present and enabled',
+  hasBtn && !(await signBtn.isDisabled()),
+  hasBtn ? '' : `no #signCreate; page shows: ${mmStage.slice(0, 200)}`);
+if (!hasBtn) {
+  console.log('  – cannot continue section 13 without the Create step');
+} else {
+
+// A real double-tap is three clicks dispatched in ONE tick on the element under
+// the finger. An auto-waiting locator is not that: it would sit and wait for the
+// button to come back after the first request resolved, and clicking a Retry
+// that has legitimately reappeared is a user retrying, not a double-tap.
+const tapResult = await mm.evaluate(() => {
+  const btn = document.getElementById('signCreate');
+  btn.click(); btn.click(); btn.click();
+  return { disabledAfter: btn.disabled };
+});
+check('the button is disabled synchronously, in the same tick as the first tap',
+  tapResult.disabledAfter === true);
+
+await mm.waitForTimeout(900);
+const sentDuring = await mm.evaluate(() => window.__sent.length);
+check('three taps in one tick produced exactly ONE wallet request',
+  sentDuring === 1,
+  sentDuring === 1 ? '' : `${sentDuring} request(s); page: `
+    + `methods=${JSON.stringify(await mm.evaluate(() => window.__methods))} `
+    + `notice=${await mm.locator('.notice.bad').first().innerText().catch(() => 'none')}`);
+
+// Tapping again while it is genuinely in flight must not start another.
+await mm.evaluate(() => document.getElementById('signCreate')?.click());
+await mm.waitForTimeout(400);
+check('a further tap while in flight still produces no second request',
+  await mm.evaluate(() => window.__sent.length) === 1);
+
+await mm.waitForTimeout(3200); // let the wallet answer
+
+const mmText = await mm.locator('body').innerText();
+const sentTotal = await mm.evaluate(() => window.__sent.length);
+check('still exactly one request after it resolved', sentTotal === 1, `${sentTotal}`);
+check('the rejection is reported honestly', /rejected/i.test(mmText),
+  mmText.replace(/\s+/g, ' ').slice(0, 110));
+check('it never claims a visible prompt exists that may not',
+  !/Open it and respond/i.test(mmText));
+check('a Retry is offered once nothing is in flight',
+  await mm.locator('#signCreate').count() === 1
+  && !(await mm.locator('#signCreate').isDisabled()));
+
+// A -32002 must not be described as definitely visible.
+const wording = await mm.evaluate(async () => {
+  const mod = await import('/chain.js');
+  const err = new Error('already pending'); err.code = -32002;
+  return mod.describeError(err);
+});
+check('the -32002 wording says it may not be visible',
+  /may not be visible/i.test(wording), wording);
+check('and no longer instructs the user to open and respond',
+  !/Open it and respond/i.test(wording));
+}
 
 // ---------------------------------------------------------------------------
 section('7. An insecure page says so, instead of looping the visitor');

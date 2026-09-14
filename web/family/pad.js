@@ -286,19 +286,45 @@ function renderLaunch() {
 
   document.getElementById('tokenName')?.addEventListener('input', (e) => { d.name = e.target.value; });
   document.getElementById('tokenSymbol')?.addEventListener('input', (e) => { d.symbol = e.target.value; });
-  document.getElementById('doLaunch')?.addEventListener('click', submitLaunch);
+  document.getElementById('doLaunch')?.addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;                       // same tick as the tap
+    button.textContent = 'Check your wallet…';
+    const pending = chain.pendingWalletRequest();
+    if (pending) {
+      state.launchDraft.tx = {
+        status: 'error',
+        message: `This page is still waiting on a ${pending.kind} request in your wallet. `
+          + 'Finish or dismiss it, then retry.',
+      };
+      renderLaunch();
+      return;
+    }
+    submitLaunch();
+  });
 }
 
 async function submitLaunch() {
   const d = state.launchDraft;
+
+  // Same re-entry guard as the builder's Create: one wallet prompt per intent.
+  // A second tap must never open a second prompt, because the wallet answers the
+  // second with -32002 and the person is sent looking for a prompt that may not
+  // be on screen.
+  if (d.submitting) return;
+  d.submitting = true;
+
   const w = wallet.wallet;
   const launcher = state.config.contracts.launcher;
 
   if (!d.name.trim() || !d.symbol.trim()) {
+    d.submitting = false;
     d.tx = { status: 'error', message: 'A name and symbol are required.' };
     return renderLaunch();
   }
   if (!launcher) {
+    d.submitting = false;
     d.tx = { status: 'error', message: 'No market launcher is configured for this deployment.' };
     return renderLaunch();
   }
@@ -327,6 +353,9 @@ async function submitLaunch() {
     state.pad = await api.pad(state.pad.slug, { refresh: true });
   } catch (error) {
     d.tx = { status: 'error', message: chain.describeError(error) };
+  } finally {
+    // Always cleared, so a failure leaves the button usable again.
+    d.submitting = false;
   }
   renderLaunch();
 }

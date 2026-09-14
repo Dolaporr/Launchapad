@@ -120,11 +120,14 @@ export async function switchChain() {
 export async function signMessage(message) {
   if (!wallet.address) return { ok: false, code: 'no_wallet' };
   try {
-    const signature = await chain.request('personal_sign', [
-      `0x${Array.from(new TextEncoder().encode(message))
-        .map((b) => b.toString(16).padStart(2, '0')).join('')}`,
-      wallet.address,
-    ]);
+    const signature = await chain.walletMutation(
+      chain.WALLET_REQUEST.SIGNATURE,
+      () => chain.request('personal_sign', [
+        `0x${Array.from(new TextEncoder().encode(message))
+          .map((b) => b.toString(16).padStart(2, '0')).join('')}`,
+        wallet.address,
+      ]),
+    );
     return { ok: true, signature };
   } catch (error) {
     return { ok: false, code: 'rejected', message: chain.describeError(error) };

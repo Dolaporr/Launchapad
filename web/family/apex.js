@@ -456,7 +456,8 @@ function builderCreate() {
 
     <div class="row" style="margin-top:16px">
       <button class="btn ghost" id="backToPreview">Back</button>
-      <button class="btn primary" id="signCreate">Create launchpad</button>
+      <button class="btn primary" id="signCreate">
+        ${d.tx?.status === 'error' ? 'Retry' : 'Create launchpad'}</button>
     </div>
   </div>`;
 }
@@ -565,7 +566,29 @@ function bindBuilder() {
 
   document.getElementById('gateConnect')?.addEventListener('click', () => wallet.connect());
   document.getElementById('gateSwitch')?.addEventListener('click', () => wallet.switchChain());
-  document.getElementById('signCreate')?.addEventListener('click', createLaunchpad);
+  document.getElementById('signCreate')?.addEventListener('click', (event) => {
+    // Disabled in the DOM in the SAME tick as the tap, before any async work.
+    // The state flag alone is not enough: a queued second tap would still see an
+    // enabled button, and on a phone that is a realistic double-tap.
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.textContent = 'Check your wallet…';
+
+    // Retrying while the wallet still holds OUR prompt would just earn another
+    // -32002. Say what is actually happening instead of starting a second one.
+    const pending = chain.pendingWalletRequest();
+    if (pending) {
+      state.draft.tx = {
+        status: 'error',
+        message: `This page is still waiting on a ${pending.kind} request in your wallet. `
+          + 'Finish or dismiss it, then retry.',
+      };
+      renderBuilder();
+      return;
+    }
+    createLaunchpad();
+  });
 }
 
 function scheduleSlugCheck() {
@@ -606,20 +629,41 @@ function updateSlugHint() {
  */
 async function createLaunchpad() {
   const d = state.draft;
+
+  // SYNCHRONOUS re-entry guard, before any await and before any DOM work.
+  // A second tap that lands in the same tick — easy on a phone, and easy again
+  // when a wallet app-switch returns focus — must not open a second wallet
+  // prompt. The wallet answers the second one with -32002, and the person is
+  // then told to respond to a prompt that may not exist.
+  if (d.submitting) return;
+  d.submitting = true;
+
   const w = wallet.wallet;
   const { contracts, origin } = state.config;
 
   if (!contracts.factory) {
+    d.submitting = false;
     d.tx = { status: 'error', message: 'No launchpad factory is configured for this deployment.' };
     return renderBuilder();
   }
+
+  // Tracks whether THIS attempt took the name, so a failure releases only a
+  // reservation it actually made.
+  let reservedHere = false;
+  let padCreated = false;
 
   d.tx = { status: 'pending' };
   renderBuilder();
 
   try {
-    const reservation = await api.reserveSlug(d.slug, w.address);
-    d.reservation = reservation;
+    // Reserve at most once across retries. Re-reserving after a failed signature
+    // would be a second write for the same intent, and the existing hold is
+    // still ours until it expires.
+    if (!d.reservation || d.reservation.slug !== d.slug) {
+      d.reservation = await api.reserveSlug(d.slug, w.address);
+      reservedHere = true;
+    }
+    const reservation = d.reservation;
 
     const metadataURI = reservation.metadataURI ?? `${origin}/p/${d.slug}`;
     const hash = await chain.createLaunchpadTx({
@@ -635,6 +679,9 @@ async function createLaunchpad() {
 
     const receipt = await chain.waitForReceipt(hash);
     if (!receipt || receipt.status === '0x0') throw new Error('The transaction reverted.');
+    // From here the launchpad EXISTS on chain. The name must not be released
+    // even if a later step fails, or the pad would be orphaned from its slug.
+    padCreated = true;
 
     const padAddress = chain.addressFromLog(
       receipt, chain.ABI.TOPICS['LaunchpadCreated(address,address,address,uint8,uint8,string,string)'],
@@ -660,9 +707,18 @@ async function createLaunchpad() {
     d.tx = { status: 'done', hash };
   } catch (error) {
     const message = error instanceof ApiError ? error.message : chain.describeError(error);
-    d.tx = { status: 'error', message };
-    // Free the name so a failed attempt does not hold it for the full window.
-    try { await api.releaseSlug(d.slug, w.address); } catch { /* best effort */ }
+    d.tx = { status: 'error', message, code: error?.code ?? null };
+
+    // Release only a hold this attempt created, and only while no launchpad
+    // exists. Releasing after creation would detach a live pad from its name;
+    // releasing a hold from an earlier attempt would drop a name still in use.
+    if (reservedHere && !padCreated) {
+      try { await api.releaseSlug(d.slug, w.address); } catch { /* best effort */ }
+      d.reservation = null;
+    }
+  } finally {
+    // Always cleared, so a failure leaves the button usable again.
+    d.submitting = false;
   }
   renderBuilder();
 }
@@ -684,7 +740,17 @@ async function boot() {
   // init also aims the switch/add-network flow at the server's chain.
   await wallet.init(state.config.chainId);
   installConnectUI();
-  wallet.onWalletChange(() => { walletChrome(); if (route().name === 'dashboard') render(); });
+  wallet.onWalletChange(() => {
+    walletChrome();
+    const view = route().name;
+    if (view === 'dashboard') { render(); return; }
+    // BUG FIX: connecting at the Create step used to leave the wallet gate on
+    // screen until a manual refresh, because only the dashboard re-rendered.
+    // Only the Create step is re-rendered here — re-rendering the earlier steps
+    // would replace the inputs and throw away focus and caret mid-typing, since
+    // a wallet event can arrive at any moment.
+    if (view === 'create' && state.draft.step === 'create') renderBuilder();
+  });
   walletChrome();
 
   // The launch model is read from the contracts, once, up front.
