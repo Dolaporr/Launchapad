@@ -12,6 +12,14 @@
 
 export const CHAINS = {
   // Verified 2026-09-12 against https://docs.robinhood.com/chain/connecting
+  robinhoodMainnet: {
+    chainId: 4663,
+    chainIdHex: '0x1237',
+    chainName: 'Robinhood Chain',
+    rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'],
+    blockExplorerUrls: ['https://robinhoodchain.blockscout.com'],
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  },
   robinhoodTestnet: {
     chainId: 46630,
     chainIdHex: '0xb626',
@@ -22,7 +30,35 @@ export const CHAINS = {
   },
 };
 
-export const TARGET_CHAIN = CHAINS.robinhoodTestnet;
+export const CHAINS_BY_ID = Object.fromEntries(
+  Object.values(CHAINS).map((c) => [c.chainId, c]),
+);
+
+// The chain the wallet is asked to switch to. MAINNET by default.
+//
+// This used to be pinned to testnet while the app detected the wrong chain using
+// the server's chainId. The two disagreed, so on production a visitor was told
+// "wrong network", clicked Switch, was moved to TESTNET, and was told "wrong
+// network" again — a loop with no exit. The switch target and the detection
+// target must be the same value, which is why it is set from server config.
+// A live binding, so every existing `chain.TARGET_CHAIN` reader sees the change
+// the moment the server config is applied.
+export let TARGET_CHAIN = CHAINS.robinhoodMainnet;
+
+/**
+ * Points the switch/add-network flow at the chain the server is configured for.
+ *
+ * Throws on an unknown chain rather than silently leaving the wallet aimed
+ * somewhere else: sending a person to the wrong chain is worse than refusing.
+ */
+export function setTargetChain(chainId) {
+  const next = CHAINS_BY_ID[Number(chainId)];
+  if (!next) {
+    throw new Error(`No Robinhood Chain definition for chain id ${chainId}.`);
+  }
+  TARGET_CHAIN = next;
+  return TARGET_CHAIN;
+}
 
 export const PRESET = { STANDARD: 0, NVDA: 1 };
 export const POLICY = { OWNER_ONLY: 0, OPEN: 1 };
@@ -208,12 +244,66 @@ export function decodeAddressArray(returnData) {
 // Wallet
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Provider discovery.
+//
+// window.ethereum is a single slot that several extensions fight over, so with
+// more than one wallet installed the visitor gets whichever won the race rather
+// than the one they meant. EIP-6963 fixes this: each wallet announces itself and
+// the page lists them all.
+//
+// Discovery is additive — window.ethereum is still used when nothing announces
+// itself, so a wallet that has not adopted EIP-6963 keeps working exactly as before.
+// ---------------------------------------------------------------------------
+
+/** Announced providers, keyed by EIP-6963 rdns. */
+const discovered = new Map();
+/** Explicitly chosen by the visitor; overrides everything else. */
+let selectedProvider = null;
+
+export function discoverProviders() {
+  if (typeof window === 'undefined') return [];
+  window.addEventListener('eip6963:announceProvider', (event) => {
+    const { info, provider } = event.detail || {};
+    if (info?.rdns && provider) discovered.set(info.rdns, { info, provider });
+  });
+  window.dispatchEvent(new Event('eip6963:requestProvider'));
+  return listProviders();
+}
+
+/** Every wallet that announced itself, for the picker. */
+export function listProviders() {
+  return [...discovered.values()].map(({ info }) => ({
+    rdns: info.rdns, name: info.name, icon: info.icon,
+  }));
+}
+
+/** Chooses which announced wallet to use. Unknown rdns is a no-op, not a throw. */
+export function selectProvider(rdns) {
+  const entry = discovered.get(rdns);
+  if (!entry) return false;
+  selectedProvider = entry.provider;
+  return true;
+}
+
 export function getProvider() {
-  return typeof window !== 'undefined' && window.ethereum ? window.ethereum : null;
+  if (selectedProvider) return selectedProvider;
+  // Exactly one announced wallet is not a choice, so take it.
+  if (discovered.size === 1) return [...discovered.values()][0].provider;
+  if (typeof window !== 'undefined' && window.ethereum) return window.ethereum;
+  // Several announced but none chosen: the caller must present a picker rather
+  // than have this file guess on the visitor's behalf.
+  if (discovered.size > 1) return [...discovered.values()][0].provider;
+  return null;
 }
 
 export function hasWallet() {
   return getProvider() !== null;
+}
+
+/** True when more than one wallet is present and the visitor has not chosen. */
+export function needsProviderChoice() {
+  return discovered.size > 1 && selectedProvider === null;
 }
 
 export class WalletError extends Error {

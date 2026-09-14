@@ -15,6 +15,7 @@ import * as wallet from './wallet.js';
 import { WALLET } from './wallet.js';
 import { readSplit, economicsPanel } from './economics.js';
 import { renderLeaderboard, renderPadCard } from './leaderboard.js';
+import { connectButton, install as installConnectUI, openSheet } from './connectUI.js';
 import * as chain from '../chain.js';
 
 const app = () => document.getElementById('app');
@@ -82,23 +83,9 @@ function renderError() {
 function walletChrome() {
   const slot = document.getElementById('walletSlot');
   if (!slot) return;
-  const w = wallet.wallet;
-
-  if (w.status === WALLET.NO_PROVIDER) {
-    slot.innerHTML = '<span class="muted small">No wallet detected</span>';
-    return;
-  }
-  if (w.status === WALLET.DISCONNECTED) {
-    slot.innerHTML = '<button class="btn small" id="connectBtn">Connect wallet</button>';
-    document.getElementById('connectBtn').onclick = async () => { await wallet.connect(); };
-    return;
-  }
-  if (w.status === WALLET.WRONG_CHAIN) {
-    slot.innerHTML = `<button class="btn small" id="switchBtn">Switch network</button>`;
-    document.getElementById('switchBtn').onclick = async () => { await wallet.switchChain(); };
-    return;
-  }
-  slot.innerHTML = `<span class="mono small muted">${esc(wallet.shortAddress(w.address))}</span>`;
+  // Every state renders a button that opens the connect sheet — including
+  // NO_PROVIDER, which used to render dead text and strand mobile visitors.
+  slot.innerHTML = connectButton();
 }
 
 // --- home ------------------------------------------------------------------
@@ -195,10 +182,13 @@ async function renderDashboard() {
 function walletGate() {
   const w = wallet.wallet;
   if (w.status === WALLET.NO_PROVIDER) {
+    // Still a CTA: the sheet is where "no wallet" becomes actionable, whether that
+    // means a hand-off link on mobile or install instructions on desktop.
     return `<div class="zero">
       <h3>A wallet is needed here</h3>
-      <p>Launchpads are created on chain, so this page needs a browser wallet to know which
+      <p>Launchpads are created on chain, so this page needs a wallet to know which
          launchpads are yours. Nothing is signed until you ask for it.</p>
+      <button class="btn primary" data-wallet-open>Connect wallet</button>
     </div>`;
   }
   if (w.status === WALLET.WRONG_CHAIN) {
@@ -691,7 +681,9 @@ async function boot() {
     '--accent', state.config.accentColors[state.draft.accent],
   );
 
+  // init also aims the switch/add-network flow at the server's chain.
   await wallet.init(state.config.chainId);
+  installConnectUI();
   wallet.onWalletChange(() => { walletChrome(); if (route().name === 'dashboard') render(); });
   walletChrome();
 

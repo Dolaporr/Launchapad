@@ -11,12 +11,31 @@
 // ---------------------------------------------------------------------------
 
 import * as chain from '../chain.js';
+import { connectionEnvironment, ROUTE, PLATFORM } from '../walletEnv.js';
 
 export const WALLET = {
   NO_PROVIDER: 'no_provider',   // no injected wallet at all
   DISCONNECTED: 'disconnected', // provider present, not authorised
   WRONG_CHAIN: 'wrong_chain',   // connected, but not the chain this pad lives on
   READY: 'ready',
+};
+
+export { ROUTE, PLATFORM };
+
+/**
+ * How THIS browser can reach a wallet.
+ *
+ * Computed once at init from the real environment. NO_PROVIDER is not one state:
+ * a desktop visitor needs an extension, an Android visitor needs a hand-off link,
+ * and someone on plain http cannot connect at all until that is fixed. Collapsing
+ * them into "No wallet detected" is what left mobile visitors with no way forward.
+ */
+export const environment = {
+  route: ROUTE.MANUAL,
+  platform: PLATFORM.DESKTOP,
+  inWalletBrowser: false,
+  links: [],
+  reason: null,
 };
 
 const listeners = new Set();
@@ -112,13 +131,70 @@ export async function signMessage(message) {
   }
 }
 
+/** Wallets this browser can hand off to. Empty on desktop and in wallet browsers. */
+export function walletLinks() { return environment.links; }
+
+/** Switches to an EIP-6963 wallet the visitor picked, then re-reads state. */
+export async function useProvider(rdns) {
+  if (!chain.selectProvider(rdns)) return { ok: false, code: 'unknown_provider' };
+  bindProviderEvents();
+  await refresh();
+  return { ok: true };
+}
+
+export function providerChoices() { return chain.listProviders(); }
+export function needsProviderChoice() { return chain.needsProviderChoice(); }
+
+let boundProvider = null;
+function bindProviderEvents() {
+  const provider = chain.getProvider();
+  if (!provider || provider === boundProvider) return;
+  boundProvider = provider;
+  provider.on?.('accountsChanged', () => { refresh(); });
+  provider.on?.('chainChanged', () => { refresh(); });
+}
+
 export function init(expectedChainId) {
   wallet.expectedChainId = expectedChainId;
-  if (chain.hasWallet()) {
-    const provider = chain.getProvider();
-    provider.on?.('accountsChanged', () => { refresh(); });
-    provider.on?.('chainChanged', () => { refresh(); });
+
+  // Aim the switch/add-network flow at the SAME chain detection compares against.
+  // These two disagreeing is what made "Switch network" an unescapable loop.
+  if (expectedChainId) {
+    try {
+      chain.setTargetChain(expectedChainId);
+    } catch (error) {
+      // A chain we have no definition for cannot be switched to or added. Surfaced
+      // rather than swallowed: silently aiming at the wrong chain is the bug we
+      // are fixing.
+      console.error(`wallet: ${error.message}`);
+    }
   }
+
+  chain.discoverProviders();
+
+  Object.assign(environment, connectionEnvironment({
+    hasInjected: chain.hasWallet(),
+    userAgent: typeof navigator === 'undefined' ? '' : navigator.userAgent,
+    maxTouchPoints: typeof navigator === 'undefined' ? 0 : (navigator.maxTouchPoints || 0),
+    location: typeof window === 'undefined' ? { href: '' } : window.location,
+    secureContext: typeof window === 'undefined' ? true : window.isSecureContext,
+  }));
+
+  bindProviderEvents();
+
+  // A wallet that announces itself over EIP-6963 can arrive after first paint,
+  // which would otherwise leave a visitor looking at a permanent "no wallet".
+  if (typeof window !== 'undefined') {
+    window.addEventListener('eip6963:announceProvider', () => {
+      if (environment.route !== ROUTE.INJECTED && chain.hasWallet()) {
+        environment.route = ROUTE.INJECTED;
+        environment.links = [];
+        bindProviderEvents();
+        refresh();
+      }
+    });
+  }
+
   return refresh();
 }
 

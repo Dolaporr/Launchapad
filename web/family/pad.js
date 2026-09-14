@@ -18,6 +18,7 @@ import { readSplit, creatorEconomicsSummary, MARKET_FACTS } from './economics.js
 import { survivalCell } from './leaderboard.js';
 import { buildLaunchState } from '../launchState.js';
 import { renderLaunchDetail } from '../launchDetail.js';
+import { connectButton, install as installConnectUI } from './connectUI.js';
 import * as chain from '../chain.js';
 
 const app = () => document.getElementById('app');
@@ -60,11 +61,9 @@ function renderNav() {
   const w = wallet.wallet;
   const isOwner = wallet.sameAddress(w.address, state.pad.owner);
 
-  const walletBit = w.status === WALLET.READY
-    ? `<span class="mono small muted">${esc(wallet.shortAddress(w.address))}</span>`
-    : w.status === WALLET.NO_PROVIDER
-      ? '<span class="muted small">No wallet</span>'
-      : `<button class="btn small" id="navConnect">Connect wallet</button>`;
+  // Always a button, in every state. "No wallet" as dead text is what left a
+  // mobile visitor on a pad with no way to connect.
+  const walletBit = connectButton();
 
   nav.innerHTML = `
     <a class="pad-brand" href="/" data-nav>
@@ -84,7 +83,6 @@ function renderNav() {
       ${walletBit}
     </nav>`;
 
-  document.getElementById('navConnect')?.addEventListener('click', () => wallet.connect());
   nav.querySelectorAll('[data-nav]').forEach((link) => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
@@ -407,9 +405,8 @@ async function renderOwner() {
       <h3>Owner tools</h3>
       <p>Connect the wallet that owns ${esc(pad.branding.displayName)} to see earnings and
          recruiting tools.</p>
-      ${w.status === WALLET.NO_PROVIDER ? '' : '<button class="btn primary" id="ownerConnect">Connect wallet</button>'}
+      <button class="btn primary" data-wallet-open>Connect wallet</button>
     </div>`;
-    document.getElementById('ownerConnect')?.addEventListener('click', () => wallet.connect());
     return;
   }
 
@@ -530,7 +527,9 @@ async function boot() {
 
     state.pad = await api.pad(slug);
     applyBranding();
+    // init also aims the switch/add-network flow at the server's chain.
     await wallet.init(state.config.chainId);
+    installConnectUI();
     wallet.onWalletChange(() => { renderNav(); render(); });
     state.split = await readSplit(state.config.contracts.rewards);
   } catch (error) {

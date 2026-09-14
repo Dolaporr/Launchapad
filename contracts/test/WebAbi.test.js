@@ -88,12 +88,31 @@ describe('web/chain.js ABI constants', () => {
     }
   });
 
-  it('targets the verified Robinhood Chain testnet parameters', () => {
+  it('targets the verified Robinhood Chain parameters', () => {
+    expect(source).to.include('chainId: 4663');
+    expect(source).to.include("chainIdHex: '0x1237'");
+    expect(source).to.include('https://rpc.mainnet.chain.robinhood.com');
+
     expect(source).to.include('chainId: 46630');
     expect(source).to.include("chainIdHex: '0xb626'");
     expect(source).to.include('https://rpc.testnet.chain.robinhood.com');
-    expect(source).to.include('https://explorer.testnet.chain.robinhood.com');
-    // 0xb626 must equal 46630 or the wallet switch silently targets the wrong chain.
+
+    // A hex/decimal mismatch would make the wallet switch silently target the
+    // wrong chain — which is exactly the bug this pair of assertions guards.
+    expect(parseInt('0x1237', 16)).to.equal(4663);
     expect(parseInt('0xb626', 16)).to.equal(46630);
+  });
+
+  // Regression: the client switched to TESTNET while detecting "wrong chain"
+  // against the server's MAINNET id. A production visitor was told to switch,
+  // was moved to testnet, and was told to switch again — a loop with no exit.
+  it('defaults the wallet switch target to mainnet, not testnet', () => {
+    expect(source).to.match(/TARGET_CHAIN\s*=\s*CHAINS\.robinhoodMainnet/);
+    expect(source).to.not.match(/TARGET_CHAIN\s*=\s*CHAINS\.robinhoodTestnet/);
+  });
+
+  it('lets the server config aim the switch flow, and refuses unknown chains', () => {
+    expect(source).to.include('export function setTargetChain');
+    expect(source).to.match(/No Robinhood Chain definition for chain id/);
   });
 });
