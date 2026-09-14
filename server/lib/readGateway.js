@@ -210,6 +210,125 @@ export function validate({ method, params = [] } = {}, { headBlock } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Who is the caller?
+//
+// Behind Railway's edge every request arrives on a socket from Railway's own
+// proxy, so `req.socket.remoteAddress` is the SAME value for every visitor.
+// Keying the rate limiter on it would put the whole internet in one bucket.
+//
+// The client's address therefore has to come from a header — which is only safe
+// because Railway's edge SETS these headers, overwriting whatever the client
+// sent. Off Railway there is no such edge, so a header is just something the
+// caller typed, and trusting it would let anyone mint an unlimited bucket per
+// request. Hence the explicit trust gate: headers are consulted ONLY when the
+// process is running on Railway (or a deployment says so outright).
+// ---------------------------------------------------------------------------
+
+/**
+ * Headers to try, in order, when proxy headers are trusted.
+ *
+ * `x-real-ip` is Railway's documented single source of truth and comes first.
+ * The other two are fallbacks because Railway's own issue tracker reports
+ * x-real-ip being set to the CDN EDGE address rather than the client when
+ * traffic crosses their CDN layer — which would collapse every visitor into one
+ * bucket, exactly the failure this code exists to prevent. Taking the first
+ * header that yields a valid address keeps per-client buckets working either
+ * way, and all three are set by the same trusted edge.
+ */
+export const CLIENT_IP_HEADERS = ['x-real-ip', 'x-envoy-external-address', 'x-forwarded-for'];
+
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/**
+ * Validates and canonicalises one client address.
+ *
+ * Anything that is not a well-formed IP returns null, and a null sends the
+ * caller back to the socket address. A malformed or attacker-chosen value must
+ * never become a bucket key of its own.
+ *
+ * @returns {string|null}
+ */
+export function normaliseClientIp(value) {
+  if (typeof value !== 'string') return null;
+  let ip = value.trim();
+  if (!ip || ip.length > 60) return null;
+
+  // `[::1]:443` — bracketed IPv6 with a port.
+  const bracketed = ip.match(/^\[([^\]]+)\](?::\d+)?$/);
+  if (bracketed) [, ip] = bracketed;
+  // `1.2.3.4:5678` — IPv4 with a port. IPv6 is excluded by its own colons.
+  else if ((ip.match(/:/g) || []).length === 1 && ip.includes('.')) [ip] = ip.split(':');
+
+  // IPv4-mapped IPv6 (`::ffff:1.2.3.4`) is the same host as the IPv4 form, so
+  // it must normalise to one key or a caller gets two buckets.
+  const mapped = ip.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
+  if (mapped) [, ip] = mapped;
+
+  const v4 = ip.match(IPV4);
+  if (v4) {
+    const octets = v4.slice(1).map(Number);
+    if (octets.some((o) => o > 255)) return null;
+    // Reject 0-padded forms; they are ambiguous and would double-bucket a host.
+    if (v4.slice(1).some((o) => o.length > 1 && o.startsWith('0'))) return null;
+    return octets.join('.');
+  }
+
+  // IPv6: hex groups and at most one `::`. Deliberately strict rather than
+  // clever — an unrecognised shape falls back to the socket, which is safe.
+  const lower = ip.toLowerCase();
+  if (!/^[0-9a-f:]+$/.test(lower)) return null;
+  if ((lower.match(/::/g) || []).length > 1) return null;
+  const groups = lower.split(':').filter((g) => g !== '');
+  if (!groups.length || groups.length > 8) return null;
+  if (groups.some((g) => g.length > 4)) return null;
+  return lower;
+}
+
+/** Known Railway-injected variables, plus any RAILWAY_* as a catch-all. */
+export function isRailway(env = process.env) {
+  if (env.RAILWAY_PROJECT_ID || env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_SERVICE_ID
+    || env.RAILWAY_ENVIRONMENT || env.RAILWAY_PUBLIC_DOMAIN) return true;
+  return Object.keys(env).some((k) => k.startsWith('RAILWAY_'));
+}
+
+/**
+ * Whether proxy headers may be believed.
+ *
+ * TRUST_PROXY_HEADERS overrides in both directions, so a deployment behind some
+ * other trusted edge can opt in, and a Railway deployment can opt out.
+ */
+export function shouldTrustProxyHeaders(env = process.env) {
+  if (env.TRUST_PROXY_HEADERS === 'true') return true;
+  if (env.TRUST_PROXY_HEADERS === 'false') return false;
+  return isRailway(env);
+}
+
+/**
+ * The rate-limit bucket key for one request.
+ *
+ * @param {{headers?: object, socket?: {remoteAddress?: string}}} req
+ * @param {{trustProxyHeaders?: boolean}} options
+ */
+export function clientKeyFor(req, { trustProxyHeaders = false } = {}) {
+  const socketIp = normaliseClientIp(req?.socket?.remoteAddress) ?? 'unknown';
+  if (!trustProxyHeaders) return socketIp;
+
+  const headers = req?.headers || {};
+  for (const name of CLIENT_IP_HEADERS) {
+    const raw = headers[name];
+    if (!raw) continue;
+    // X-Forwarded-For is a list; the leftmost entry is the original client.
+    // A header arriving as an array (repeated header) takes its first value.
+    const first = String(Array.isArray(raw) ? raw[0] : raw).split(',')[0];
+    const ip = normaliseClientIp(first);
+    if (ip) return ip;
+  }
+  // Every trusted header was absent or malformed. Falling back to the socket
+  // means such callers SHARE a bucket rather than each getting a fresh one.
+  return socketIp;
+}
+
 /**
  * A small fixed-window limiter, so this cannot be farmed as free RPC.
  *

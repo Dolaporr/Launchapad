@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   validate, RateLimiter, resolveBlockTag,
+  clientKeyFor, normaliseClientIp, isRailway, shouldTrustProxyHeaders,
   ALLOWED_SELECTORS, ALLOWED_TOPICS, MAX_LOG_SPAN,
 } from '../lib/readGateway.js';
 import { keccak256Hex } from '../lib/keccak.js';
@@ -245,4 +246,145 @@ test('rate limiter bounds a single caller and then recovers', () => {
   assert.equal(limiter.take('b', now).ok, true);
   // The window rolls.
   assert.equal(limiter.take('a', now + 1001).ok, true);
+});
+
+// ---------------------------------------------------------------------------
+// Who gets which rate-limit bucket.
+//
+// Behind Railway every request arrives on a socket from Railway's proxy, so the
+// socket address is identical for everyone. Keying on it would put the whole
+// internet in one bucket; trusting a header off Railway would let anyone mint a
+// fresh bucket per request. Both failures are covered here.
+// ---------------------------------------------------------------------------
+
+const PROXY_SOCKET = '100.64.0.7';          // Railway's internal proxy
+const req = (headers = {}, remoteAddress = PROXY_SOCKET) => ({ headers, socket: { remoteAddress } });
+const onRailway = { trustProxyHeaders: true };
+const local = { trustProxyHeaders: false };
+
+test('two visitors behind one proxy socket get independent buckets', () => {
+  const a = clientKeyFor(req({ 'x-real-ip': '203.0.113.10' }), onRailway);
+  const b = clientKeyFor(req({ 'x-real-ip': '198.51.100.22' }), onRailway);
+  assert.notEqual(a, b);
+  assert.equal(a, '203.0.113.10');
+  assert.equal(b, '198.51.100.22');
+
+  // And the limiter genuinely separates them: exhausting one leaves the other free.
+  const limiter = new RateLimiter({ limit: 2, windowMs: 1000 });
+  const now = 5_000_000;
+  assert.equal(limiter.take(a, now).ok, true);
+  assert.equal(limiter.take(a, now).ok, true);
+  assert.equal(limiter.take(a, now).ok, false, 'first visitor is limited');
+  assert.equal(limiter.take(b, now).ok, true, 'second visitor must be unaffected');
+});
+
+test('repeated requests from one client IP share a single bucket', () => {
+  const limiter = new RateLimiter({ limit: 3, windowMs: 1000 });
+  const now = 6_000_000;
+  // Same client, different sockets and ports — Railway may spread them.
+  const keys = [
+    clientKeyFor(req({ 'x-real-ip': '203.0.113.10' }, '100.64.0.7'), onRailway),
+    clientKeyFor(req({ 'x-real-ip': '203.0.113.10' }, '100.64.0.9'), onRailway),
+    clientKeyFor(req({ 'x-real-ip': '203.0.113.10:51234' }, '100.64.1.2'), onRailway),
+    clientKeyFor(req({ 'x-real-ip': '::ffff:203.0.113.10' }, '100.64.2.3'), onRailway),
+  ];
+  assert.deepEqual([...new Set(keys)], ['203.0.113.10'], 'all four must be one key');
+  assert.equal(limiter.take(keys[0], now).ok, true);
+  assert.equal(limiter.take(keys[1], now).ok, true);
+  assert.equal(limiter.take(keys[2], now).ok, true);
+  assert.equal(limiter.take(keys[3], now).ok, false, 'the fourth must be limited');
+});
+
+test('local development with no Railway header uses the socket address', () => {
+  assert.equal(clientKeyFor(req({}, '127.0.0.1'), local), '127.0.0.1');
+  assert.equal(clientKeyFor(req({}, '::ffff:127.0.0.1'), local), '127.0.0.1');
+  assert.equal(clientKeyFor(req({}, '::1'), local), '::1');
+  // Header present but untrusted: it must be ignored entirely.
+  assert.equal(
+    clientKeyFor(req({ 'x-real-ip': '203.0.113.10' }, '127.0.0.1'), local),
+    '127.0.0.1',
+    'an untrusted header must not become the key',
+  );
+  // On Railway, with no header at all, the socket is still the fallback.
+  assert.equal(clientKeyFor(req({}, '100.64.0.7'), onRailway), '100.64.0.7');
+});
+
+test('malformed client IPs never create arbitrary unlimited buckets', () => {
+  const junk = [
+    'not-an-ip', '', '   ', '999.999.999.999', '1.2.3', '1.2.3.4.5',
+    '<script>', '203.0.113.10; DROP TABLE', '../../etc/passwd',
+    'a'.repeat(200), '01.02.03.04', 'gggg::1', '1:2:3:4:5:6:7:8:9',
+    '::ffff::1', '12345::1',
+  ];
+  for (const value of junk) {
+    assert.equal(normaliseClientIp(value), null, `${value} must not normalise`);
+    // Every junk value collapses onto ONE key — the shared socket — rather than
+    // each minting a fresh bucket, which would defeat the limiter entirely.
+    assert.equal(
+      clientKeyFor(req({ 'x-real-ip': value }), onRailway),
+      PROXY_SOCKET,
+      `${value} must fall back to the socket`,
+    );
+  }
+
+  // The attack this prevents: a unique header per request buying unlimited quota.
+  const limiter = new RateLimiter({ limit: 2, windowMs: 1000 });
+  const now = 7_000_000;
+  let allowed = 0;
+  for (let i = 0; i < 10; i += 1) {
+    const key = clientKeyFor(req({ 'x-real-ip': `junk-${i}` }), onRailway);
+    if (limiter.take(key, now).ok) allowed += 1;
+  }
+  assert.equal(allowed, 2, 'ten forged headers must not buy ten buckets');
+});
+
+test('X-Forwarded-For contributes only its leftmost entry', () => {
+  assert.equal(
+    clientKeyFor(req({ 'x-forwarded-for': '203.0.113.10, 100.64.0.7, 10.0.0.1' }), onRailway),
+    '203.0.113.10',
+  );
+  // A repeated header arrives as an array.
+  assert.equal(
+    clientKeyFor(req({ 'x-forwarded-for': ['198.51.100.5, 10.0.0.1', '1.1.1.1'] }), onRailway),
+    '198.51.100.5',
+  );
+});
+
+// Railway's own tracker reports x-real-ip being set to the CDN edge address on
+// CDN-routed traffic. Falling through to the next edge-set header keeps buckets
+// per-client instead of collapsing every visitor onto one CDN address.
+test('falls through to the next trusted header when the first is unusable', () => {
+  assert.equal(clientKeyFor(req({
+    'x-real-ip': 'nonsense',
+    'x-envoy-external-address': '203.0.113.44',
+  }), onRailway), '203.0.113.44');
+
+  assert.equal(clientKeyFor(req({
+    'x-real-ip': '',
+    'x-forwarded-for': '198.51.100.7, 100.64.0.7',
+  }), onRailway), '198.51.100.7');
+
+  // A usable x-real-ip still wins: it is the documented source of truth.
+  assert.equal(clientKeyFor(req({
+    'x-real-ip': '203.0.113.1',
+    'x-forwarded-for': '198.51.100.7',
+  }), onRailway), '203.0.113.1');
+});
+
+test('proxy headers are trusted only in a Railway (or declared) deployment', () => {
+  assert.equal(isRailway({}), false);
+  assert.equal(isRailway({ RAILWAY_PROJECT_ID: 'p1' }), true);
+  assert.equal(isRailway({ RAILWAY_SERVICE_ID: 's1' }), true);
+  assert.equal(isRailway({ RAILWAY_ANYTHING_NEW: 'x' }), true, 'catch-all for naming drift');
+  assert.equal(isRailway({ HOME: '/root', PATH: '/usr/bin' }), false);
+
+  assert.equal(shouldTrustProxyHeaders({}), false);
+  assert.equal(shouldTrustProxyHeaders({ RAILWAY_PROJECT_ID: 'p1' }), true);
+  // Explicit override wins in both directions.
+  assert.equal(shouldTrustProxyHeaders({ TRUST_PROXY_HEADERS: 'true' }), true);
+  assert.equal(
+    shouldTrustProxyHeaders({ RAILWAY_PROJECT_ID: 'p1', TRUST_PROXY_HEADERS: 'false' }),
+    false,
+    'a Railway deployment must be able to opt out',
+  );
 });

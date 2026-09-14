@@ -26,7 +26,9 @@ import { ChainReader } from './chain.js';
 import { slugFromHost, validateSlug, metadataUriFor, slugFromMetadataUri } from './slug.js';
 import { padMetrics, rankPads } from './metrics.js';
 import { buildExport, buildTar, githubStatus } from './export.js';
-import { validate as validateRead, RateLimiter } from './readGateway.js';
+import {
+  validate as validateRead, RateLimiter, clientKeyFor, shouldTrustProxyHeaders,
+} from './readGateway.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -77,6 +79,9 @@ export class App {
     this.nonces = new Map();
     // Lets a visitor with no wallet READ the chain. Signing still needs a wallet.
     this.readLimiter = new RateLimiter();
+    // Decided ONCE at startup, from the environment — never per request, and
+    // never from anything a caller can influence.
+    this.trustProxyHeaders = shouldTrustProxyHeaders();
   }
 
   // --- helpers --------------------------------------------------------------
@@ -321,7 +326,10 @@ export class App {
     if (method === 'POST' && route === '/chain/read') {
       if (!this.chain) return this.json(res, 503, { error: 'no_rpc_configured' });
 
-      const key = req.socket?.remoteAddress || 'unknown';
+      // Behind Railway's edge every request shares one socket address, so the
+      // client comes from an edge-set header. Off Railway that header is just
+      // caller-supplied text and is ignored.
+      const key = clientKeyFor(req, { trustProxyHeaders: this.trustProxyHeaders });
       const limit = this.readLimiter.take(key);
       if (!limit.ok) {
         res.setHeader('retry-after', Math.ceil(limit.retryAfterMs / 1000));
