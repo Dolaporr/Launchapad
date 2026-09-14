@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  validate, RateLimiter, ALLOWED_SELECTORS, ALLOWED_TOPICS, MAX_LOG_SPAN,
+  validate, RateLimiter, resolveBlockTag,
+  ALLOWED_SELECTORS, ALLOWED_TOPICS, MAX_LOG_SPAN,
 } from '../lib/readGateway.js';
 import { keccak256Hex } from '../lib/keccak.js';
 
@@ -80,43 +81,139 @@ test('refuses malformed calls rather than passing them upstream', () => {
   assert.equal(validate({ method: 'eth_call', params: 'not-an-array' }).ok, false);
 });
 
-test('log queries are limited to known events and a bounded span', () => {
-  const good = validate({
-    method: 'eth_getLogs',
-    params: [{
-      address: TOKEN,
-      topics: [topic('Transfer(address,address,uint256)')],
-      fromBlock: '0x0',
-      toBlock: '0x64',
-    }],
+const HEAD = 62_000_000;
+const TRANSFER = topic('Transfer(address,address,uint256)');
+const logs = (filter, headBlock = HEAD) => validate(
+  { method: 'eth_getLogs', params: [filter] }, { headBlock },
+);
+
+test('log queries are limited to known events and a named contract', () => {
+  const good = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: '0x0', toBlock: '0x64',
   });
   assert.equal(good.ok, true);
+  assert.ok(ALLOWED_TOPICS.has(TRANSFER));
 
-  assert.ok(ALLOWED_TOPICS.has(topic('Transfer(address,address,uint256)')));
-
-  // An unknown event would make this a general log scraper.
-  const unknownTopic = validate({
-    method: 'eth_getLogs',
-    params: [{ topics: [topic('Approval(address,address,uint256)')] }],
+  const unknownTopic = logs({
+    address: TOKEN, topics: [topic('Approval(address,address,uint256)')],
+    fromBlock: '0x0', toBlock: '0x1',
   });
   assert.equal(unknownTopic.ok, false);
   assert.match(unknownTopic.error, /topic_not_allowed/);
 
-  const noTopic = validate({ method: 'eth_getLogs', params: [{ address: TOKEN }] });
+  const noTopic = logs({ address: TOKEN, fromBlock: '0x0', toBlock: '0x1' });
   assert.equal(noTopic.ok, false);
+});
 
-  // Refused, not silently truncated: a partial log set corrupts every total
-  // computed from it.
-  const tooWide = validate({
-    method: 'eth_getLogs',
-    params: [{
-      topics: [topic('Transfer(address,address,uint256)')],
-      fromBlock: '0x0',
-      toBlock: `0x${(MAX_LOG_SPAN + 1).toString(16)}`,
-    }],
+// ---------------------------------------------------------------------------
+// The range bypass. Every one of these forwarded an unbounded scan before:
+// the span check only ran when BOTH endpoints parsed as numbers, and `latest`
+// parsed as null.
+// ---------------------------------------------------------------------------
+
+test('0x0 -> latest is refused, not forwarded as a full-chain scan', () => {
+  const verdict = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: '0x0', toBlock: 'latest',
   });
-  assert.equal(tooWide.ok, false);
-  assert.match(tooWide.error, /span_too_wide/);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /span_too_wide/);
+});
+
+test('omitted endpoints resolve to the head, never to the whole chain', () => {
+  // Previously both defaulted to 0x0 -> latest, an unbounded scan. Omitting an
+  // endpoint now means `latest` on BOTH sides, per JSON-RPC, so the request
+  // resolves to a single block rather than the entire history.
+  const both = logs({ address: TOKEN, topics: [TRANSFER] });
+  assert.equal(both.ok, true);
+  assert.equal(both.resolved.from, HEAD);
+  assert.equal(both.resolved.to, HEAD);
+  assert.equal(both.resolved.span, 0);
+  assert.equal(both.params[0].fromBlock, `0x${HEAD.toString(16)}`);
+
+  // An omitted `to` with an explicit early `from` is still bounded and refused.
+  const wide = logs({ address: TOKEN, topics: [TRANSFER], fromBlock: '0x0' });
+  assert.equal(wide.ok, false);
+  assert.match(wide.error, /span_too_wide/);
+});
+
+test('a numeric from with latest to is bounded against the head', () => {
+  const tooFar = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: '0x1', toBlock: 'latest',
+  });
+  assert.equal(tooFar.ok, false);
+  assert.match(tooFar.error, /span_too_wide/);
+
+  // Just inside the limit: allowed, and resolved to concrete numbers.
+  const near = logs({
+    address: TOKEN,
+    topics: [TRANSFER],
+    fromBlock: `0x${(HEAD - MAX_LOG_SPAN).toString(16)}`,
+    toBlock: 'latest',
+  });
+  assert.equal(near.ok, true);
+  assert.equal(near.resolved.span, MAX_LOG_SPAN);
+  assert.equal(near.params[0].toBlock, `0x${HEAD.toString(16)}`);
+});
+
+test('every symbolic tag resolves against the head, none reach the node', () => {
+  for (const tag of ['latest', 'pending', 'safe', 'finalized']) {
+    const verdict = logs({
+      address: TOKEN,
+      topics: [TRANSFER],
+      fromBlock: `0x${(HEAD - 10).toString(16)}`,
+      toBlock: tag,
+    });
+    assert.equal(verdict.ok, true, tag);
+    assert.equal(verdict.params[0].toBlock, `0x${HEAD.toString(16)}`, tag);
+    assert.ok(!/latest|pending|safe|finalized/.test(JSON.stringify(verdict.params)), tag);
+  }
+  // earliest is block 0, and with a distant head that is over-wide.
+  const earliest = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: 'earliest', toBlock: 'latest',
+  });
+  assert.equal(earliest.ok, false);
+  assert.equal(resolveBlockTag('earliest', HEAD), 0);
+  assert.equal(resolveBlockTag('latest', HEAD), HEAD);
+  assert.equal(resolveBlockTag(undefined, HEAD), HEAD);
+  assert.equal(resolveBlockTag('not-a-tag', HEAD), undefined);
+});
+
+test('a chain-wide scan by topic alone is refused', () => {
+  const verdict = logs({ topics: [TRANSFER], fromBlock: '0x0', toBlock: '0x64' });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /require_single_address/);
+
+  // An array of addresses is not a single contract either.
+  const many = logs({
+    address: [TOKEN, REWARDS], topics: [TRANSFER], fromBlock: '0x0', toBlock: '0x64',
+  });
+  assert.equal(many.ok, false);
+  assert.match(many.error, /require_single_address/);
+});
+
+test('a log query with no resolvable head is refused, not guessed', () => {
+  const verdict = validate(
+    { method: 'eth_getLogs', params: [{ address: TOKEN, topics: [TRANSFER] }] },
+    {},
+  );
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /head_block_unavailable/);
+});
+
+test('an inverted range is refused rather than silently swapped', () => {
+  const verdict = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: '0x64', toBlock: '0x1',
+  });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /inverted_range/);
+});
+
+test('an unparseable block tag is refused', () => {
+  const verdict = logs({
+    address: TOKEN, topics: [TRANSFER], fromBlock: 'yesterday', toBlock: 'latest',
+  });
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /unparseable_block_tag/);
 });
 
 test('never forwards full transaction bodies for a block', () => {

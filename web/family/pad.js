@@ -347,15 +347,16 @@ async function renderToken(token) {
     // from the launcher's own event rather than left undefined.
     let fromBlock;
     try {
-      const logs = await chain.getLogs({
+      // Searched backwards in bounded windows. A `0 -> latest` scan is a
+      // full-chain read and is refused by the read gateway.
+      const found = await chain.findLogBackwards({
         address: launcher,
         topics: [
           chain.ABI.TOPICS['TokenLaunchedToUniswap(address,address,address,address,uint256)'],
           `0x${'0'.repeat(24)}${token.replace(/^0x/, '')}`.toLowerCase(),
         ],
-        fromBlock: 0,
       });
-      if (logs.length) fromBlock = Number(BigInt(logs[0].blockNumber));
+      if (found) fromBlock = Number(BigInt(found.blockNumber));
     } catch { /* left undefined; the record will say supply is unreconcilable */ }
 
     const record = await chain.readLaunchState({

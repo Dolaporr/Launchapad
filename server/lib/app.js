@@ -331,7 +331,21 @@ export class App {
       let body;
       try { body = await this.body(req); } catch { return this.json(res, 400, { error: 'bad_json' }); }
 
-      const verdict = validateRead(body);
+      // A log query cannot be bounded without knowing where the chain ends, so
+      // the head is resolved HERE, server-side, before validation. A caller
+      // cannot influence it, and `latest` never reaches the upstream node.
+      let headBlock;
+      if (body?.method === 'eth_getLogs') {
+        try {
+          headBlock = await this.chain.getBlockNumber();
+        } catch (error) {
+          return this.json(res, 502, {
+            error: 'head_block_unavailable', message: error.message,
+          });
+        }
+      }
+
+      const verdict = validateRead(body, { headBlock });
       if (!verdict.ok) return this.json(res, 403, { error: verdict.error });
 
       try {

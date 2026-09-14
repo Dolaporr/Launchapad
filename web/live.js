@@ -783,15 +783,16 @@ async function loadLaunchDetail(token) {
     // rather than silently reporting an unreconciled supply as if it balanced.
     let fromBlock;
     try {
-      const logs = await chain.getLogs({
+      // Bounded backwards search: `0 -> latest` is a full-chain scan and is
+      // refused by the read gateway.
+      const found = await chain.findLogBackwards({
         address: launcher,
         topics: [
           chain.ABI.TOPICS['TokenLaunchedToUniswap(address,address,address,address,uint256)'],
           `0x${'0'.repeat(24)}${token.replace(/^0x/, '')}`.toLowerCase(),
         ],
-        fromBlock: 0,
       });
-      if (logs.length) fromBlock = Number(BigInt(logs[0].blockNumber));
+      if (found) fromBlock = Number(BigInt(found.blockNumber));
     } catch { /* leave undefined; the record will mark supply as unreconcilable */ }
 
     const controlled = [state.account].filter(Boolean);

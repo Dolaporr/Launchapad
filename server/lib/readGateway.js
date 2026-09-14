@@ -17,8 +17,12 @@
 //      keccak so there is no hardcoded constant to drift. A call carrying any
 //      other selector is refused, so no state-changing function is reachable
 //      even if one were somehow encoded into an eth_call.
-//   3. Shape limits. Log queries are bounded in block span and restricted to
-//      known event topics, so this cannot be used as a free archive-node scraper.
+//   3. Shape limits. A log query must name ONE contract and a known event, and
+//      both of its block endpoints are resolved against the current head before
+//      the span is checked — so `latest`, or an omitted endpoint, cannot slip a
+//      full-chain scan past the bound. Over-wide ranges are refused, never
+//      truncated: a caller that asked for a range and silently received part of
+//      it would compute totals from an incomplete log set.
 //
 // What remains reachable is view data on a public chain — the same data a block
 // explorer serves. Nothing here can move a token or authorise anything.
@@ -82,22 +86,39 @@ export const MAX_LOG_SPAN = 200000;
 const isHexAddress = (v) => typeof v === 'string' && /^0x[0-9a-fA-F]{40}$/.test(v);
 const isHexData = (v) => typeof v === 'string' && /^0x[0-9a-fA-F]*$/.test(v);
 
-/** Parses a block tag to a number, or null for the symbolic tags. */
-function blockNumberOf(tag) {
-  if (tag === undefined || tag === null) return null;
-  if (typeof tag === 'number') return tag;
-  if (typeof tag !== 'string') return null;
-  if (/^(latest|earliest|pending|safe|finalized)$/.test(tag)) return null;
+/**
+ * Resolves a block tag to a concrete number against a known head.
+ *
+ * Every symbolic tag resolves; nothing is left unbounded. This is the whole
+ * point: the previous version returned null for `latest`, and the span check
+ * then skipped itself, so `0x0 -> latest` forwarded a full-chain scan.
+ *
+ * @returns {number|undefined} undefined when the tag is unparseable.
+ */
+export function resolveBlockTag(tag, headBlock) {
+  if (tag === undefined || tag === null) return headBlock;
+  if (typeof tag === 'number' && Number.isInteger(tag) && tag >= 0) return tag;
+  if (typeof tag !== 'string') return undefined;
+  if (tag === 'earliest') return 0;
+  if (/^(latest|pending|safe|finalized)$/.test(tag)) return headBlock;
   if (/^0x[0-9a-fA-F]+$/.test(tag)) return Number(BigInt(tag));
-  return null;
+  return undefined;
 }
 
+const toHex = (n) => `0x${n.toString(16)}`;
+
 /**
- * Decides whether one RPC request may be forwarded.
+ * Decides whether one RPC request may be forwarded, and normalises it.
  *
- * @returns {{ok: true, method: string, params: any[]} | {ok: false, error: string}}
+ * Pure and synchronous: the caller resolves the chain head first and passes it
+ * in, so the bounding rules stay deterministic and testable without a network.
+ *
+ * @param {{method: string, params: any[]}} request
+ * @param {{headBlock?: number}} context  current head; REQUIRED for eth_getLogs
+ * @returns {{ok: true, method: string, params: any[], resolved?: object}
+ *          | {ok: false, error: string}}
  */
-export function validate({ method, params = [] } = {}) {
+export function validate({ method, params = [] } = {}, { headBlock } = {}) {
   if (typeof method !== 'string' || !ALLOWED_METHODS.has(method)) {
     return { ok: false, error: `method_not_allowed: ${String(method)}` };
   }
@@ -137,9 +158,14 @@ export function validate({ method, params = [] } = {}) {
   // eth_getLogs
   const [filter] = params;
   if (!filter || typeof filter !== 'object') return { ok: false, error: 'logs_require_filter' };
-  if (filter.address !== undefined && !isHexAddress(filter.address)) {
-    return { ok: false, error: 'logs_address_must_be_single_address' };
+
+  // A single contract is REQUIRED. Topic-only queries are chain-wide scans:
+  // every Transfer on the chain matches, which is an indexer's workload, not a
+  // product read.
+  if (!isHexAddress(filter.address)) {
+    return { ok: false, error: 'logs_require_single_address' };
   }
+
   const topics = filter.topics || [];
   if (!Array.isArray(topics) || topics.length === 0) {
     return { ok: false, error: 'logs_require_topic0' };
@@ -148,20 +174,39 @@ export function validate({ method, params = [] } = {}) {
   if (typeof topic0 !== 'string' || !ALLOWED_TOPICS.has(topic0.toLowerCase())) {
     return { ok: false, error: 'logs_topic_not_allowed' };
   }
-  const from = blockNumberOf(filter.fromBlock);
-  const to = blockNumberOf(filter.toBlock);
-  if (from !== null && to !== null && to - from > MAX_LOG_SPAN) {
-    return { ok: false, error: `logs_span_too_wide: ${to - from} > ${MAX_LOG_SPAN}` };
+
+  // Without a head block there is no way to bound `latest`, so the request is
+  // refused rather than forwarded on the hope that it is small.
+  if (!Number.isInteger(headBlock) || headBlock < 0) {
+    return { ok: false, error: 'logs_head_block_unavailable' };
   }
+
+  const from = resolveBlockTag(filter.fromBlock, headBlock);
+  const to = resolveBlockTag(filter.toBlock, headBlock);
+  if (from === undefined || to === undefined) {
+    return { ok: false, error: 'logs_unparseable_block_tag' };
+  }
+  if (to < from) return { ok: false, error: `logs_inverted_range: ${from} > ${to}` };
+
+  const span = to - from;
+  // Refused, never truncated: a caller that asked for a range and silently got
+  // part of it would compute totals from an incomplete log set.
+  if (span > MAX_LOG_SPAN) {
+    return { ok: false, error: `logs_span_too_wide: ${span} > ${MAX_LOG_SPAN}` };
+  }
+
   return {
     ok: true,
     method,
+    // Both endpoints are forwarded as concrete numbers. No symbolic tag reaches
+    // the upstream node, so the bounded range cannot widen between check and use.
     params: [{
-      ...(filter.address ? { address: filter.address } : {}),
+      address: filter.address,
       topics,
-      fromBlock: filter.fromBlock ?? '0x0',
-      toBlock: filter.toBlock ?? 'latest',
+      fromBlock: toHex(from),
+      toBlock: toHex(to),
     }],
+    resolved: { from, to, span },
   };
 }
 

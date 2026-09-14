@@ -151,7 +151,12 @@ function bindProviderEvents() {
   if (!provider || provider === boundProvider) return;
   boundProvider = provider;
   provider.on?.('accountsChanged', () => { refresh(); });
-  provider.on?.('chainChanged', () => { refresh(); });
+  provider.on?.('chainChanged', () => {
+    // The wallet may have just moved off the chain we read about, so the next
+    // read must re-decide whether it can be trusted as a source.
+    chain.resetInjectedChainCache();
+    refresh();
+  });
 }
 
 export function init(expectedChainId) {

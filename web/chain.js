@@ -324,7 +324,8 @@ export function describeError(error) {
   if (code === -32002) return 'Your wallet already has a pending request. Open it and respond.';
   const message = error?.data?.message || error?.message || String(error);
   if (/insufficient funds/i.test(message)) {
-    return 'This wallet has no testnet ETH for gas. Fund it and try again.';
+    return `This wallet has no ETH on ${TARGET_CHAIN.chainName} for gas. `
+      + 'Fund it and try again.';
   }
   return message.length > 220 ? `${message.slice(0, 220)}…` : message;
 }
@@ -357,6 +358,32 @@ export async function request(method, params = []) {
 let preferInjectedForReads = true;
 export function setPreferInjectedForReads(value) { preferInjectedForReads = Boolean(value); }
 
+// What chain the injected wallet is on. null = not yet asked.
+//
+// An injected wallet is only a valid source for PUBLIC reads when it is on the
+// chain we are reading about. A wallet parked on Ethereum mainnet answers
+// `eth_call` perfectly successfully — with `0x`, or worse with data from a
+// different contract at the same address. That is not a read failure the client
+// can detect, it is a wrong answer, so the wallet is not consulted at all
+// unless its chain matches.
+let injectedChainId = null;
+
+/** Called when the wallet reports a chain change, so the next read re-checks. */
+export function resetInjectedChainCache() { injectedChainId = null; }
+
+async function injectedReaderIfOnTargetChain() {
+  const provider = getProvider();
+  if (!provider) return null;
+  if (injectedChainId === null) {
+    try {
+      injectedChainId = Number(BigInt(await provider.request({ method: 'eth_chainId' })));
+    } catch {
+      return null;
+    }
+  }
+  return injectedChainId === TARGET_CHAIN.chainId ? provider : null;
+}
+
 export class ReadError extends Error {
   constructor(message, code) {
     super(message);
@@ -388,13 +415,13 @@ async function gatewayRequest(method, params) {
 }
 
 export async function readRequest(method, params = []) {
-  const provider = preferInjectedForReads ? getProvider() : null;
+  const provider = preferInjectedForReads ? await injectedReaderIfOnTargetChain() : null;
   if (provider) {
     try {
       return await provider.request({ method, params });
-    } catch (error) {
-      // A wallet that is locked or on another chain can refuse a read the server
-      // can serve perfectly well, so fall through rather than call it unknowable.
+    } catch {
+      // A locked wallet can refuse a read the server serves perfectly well, so
+      // fall through rather than calling the value unknowable.
       return gatewayRequest(method, params);
     }
   }
@@ -747,13 +774,67 @@ export function policyLabel(policy) {
 // ---------------------------------------------------------------------------
 
 /** eth_getLogs through the injected provider. Throws rather than returning partial data. */
+/**
+ * Must match MAX_LOG_SPAN in server/lib/readGateway.js.
+ *
+ * The gateway refuses a wider range rather than truncating it, so the client is
+ * responsible for asking in windows. It is not a limit to work around — an
+ * unbounded `0 -> latest` scan is a full-chain read, which is an indexer's job.
+ */
+export const MAX_LOG_SPAN = 200000;
+
+const hexBlock = (v) => (typeof v === 'number' ? `0x${v.toString(16)}` : v);
+
 export async function getLogs({ address, topics, fromBlock, toBlock = 'latest' }) {
   return readRequest('eth_getLogs', [{
     address,
     topics,
-    fromBlock: typeof fromBlock === 'number' ? `0x${fromBlock.toString(16)}` : fromBlock,
-    toBlock,
+    fromBlock: hexBlock(fromBlock),
+    toBlock: hexBlock(toBlock),
   }]);
+}
+
+/**
+ * A complete log set over a range wider than one window.
+ *
+ * Chunked, never truncated: a failing window THROWS rather than returning what
+ * it managed to collect, because a partial log set silently corrupts every
+ * total computed from it.
+ */
+export async function getLogsChunked({ address, topics, fromBlock, toBlock }) {
+  const end = typeof toBlock === 'number' ? toBlock : await getBlockNumber();
+  const start = typeof fromBlock === 'number' ? fromBlock : 0;
+  const out = [];
+  for (let from = start; from <= end; from += MAX_LOG_SPAN) {
+    const to = Math.min(from + MAX_LOG_SPAN - 1, end);
+    out.push(...await getLogs({ address, topics, fromBlock: from, toBlock: to }));
+  }
+  return out;
+}
+
+/**
+ * Walks BACKWARDS from the head in bounded windows until a matching log is found.
+ *
+ * For one-off lookups like "which block did this token launch in" — recent
+ * events are found in the first window or two, instead of scanning the chain
+ * from genesis forwards.
+ *
+ * @returns the most recent matching log, or null within the lookback budget.
+ */
+export async function findLogBackwards({
+  address, topics, maxLookback = 2000000, head = null,
+}) {
+  let to = head ?? await getBlockNumber();
+  let scanned = 0;
+  while (to >= 0 && scanned < maxLookback) {
+    const from = Math.max(0, to - MAX_LOG_SPAN + 1);
+    const logs = await getLogs({ address, topics, fromBlock: from, toBlock: to });
+    if (logs.length) return logs[logs.length - 1];
+    scanned += to - from + 1;
+    if (from === 0) break;
+    to = from - 1;
+  }
+  return null;
 }
 
 export async function getBlockNumber() {
@@ -854,8 +935,13 @@ export async function readLaunchState({ launcher, token, controlledWallets = [],
   let holders = [];
   let supplyExact = false;
   if (fromBlock !== undefined && fromBlock !== null) {
-    const logs = await getLogs({
-      address: token, topics: [ABI.TOPICS['Transfer(address,address,uint256)']], fromBlock, toBlock: at,
+    // Chunked: a token launched long ago spans more than one window, and the
+    // gateway refuses an over-wide range rather than truncating it.
+    const logs = await getLogsChunked({
+      address: token,
+      topics: [ABI.TOPICS['Transfer(address,address,uint256)']],
+      fromBlock,
+      toBlock: head,
     });
     const touched = new Set();
     for (const log of logs) {

@@ -350,6 +350,64 @@ check('and refuses to continue on unverified economics',
   await blindContinue.count() === 1 && await blindContinue.isDisabled());
 
 // ---------------------------------------------------------------------------
+section('10. A wallet on another chain is not trusted for reads');
+
+// The dangerous case: the wallet answers eth_call SUCCESSFULLY with `0x`.
+// That is not an error the client can detect — it decodes as zero — so a wallet
+// on the wrong chain would silently poison the economics. It must not be used
+// as a read source at all unless its chain matches.
+const wrongChainCtx = await browser.newContext(devices['iPhone 13']);
+const foreign = await wrongChainCtx.newPage();
+await foreign.addInitScript(() => {
+  window.__injectedCalls = [];
+  window.ethereum = {
+    async request({ method, params = [] }) {
+      if (method === 'eth_chainId') return '0x1';            // Ethereum mainnet
+      if (method === 'eth_accounts') return [];
+      if (method === 'eth_requestAccounts') return ['0x' + '11'.repeat(20)];
+      if (method === 'eth_call') {
+        // Succeeds, returns nothing. The silent-corruption case.
+        window.__injectedCalls.push(params[0]?.data);
+        return '0x';
+      }
+      if (method === 'eth_blockNumber') return '0x1';
+      if (method === 'eth_sendTransaction') throw new Error('TEST FAILURE: transaction attempted');
+      return null;
+    },
+    on() {}, removeListener() {},
+  };
+});
+await foreign.goto(`${origin(APEX)}/#create`, { waitUntil: 'networkidle' });
+await foreign.waitForTimeout(1500);
+await foreign.fill('#padName', 'Foreign Chain');
+await foreign.waitForTimeout(1200);
+await foreign.click('#toRules');
+await foreign.waitForTimeout(300);
+await foreign.click('#toModel');
+await foreign.waitForTimeout(2500);
+
+const foreignText = await foreign.locator('body').innerText();
+check('the wallet is on a different chain', await foreign.evaluate(
+  () => window.ethereum.request({ method: 'eth_chainId' }),
+) === '0x1');
+check('the economics are still correct, from the gateway',
+  /50%/.test(foreignText) && /30%/.test(foreignText) && /20%/.test(foreignText));
+check('not rendered as a read failure', !/could not be read from the contracts/i.test(foreignText));
+
+// The proof it came from the gateway and not the wallet: the wallet's eth_call
+// was never used for these reads.
+const injectedCalls = await foreign.evaluate(() => window.__injectedCalls);
+check('the foreign wallet was never asked for a value',
+  injectedCalls.length === 0, `${injectedCalls.length} call(s): ${injectedCalls.slice(0, 3)}`);
+
+// This shim reports no accounts, so the wallet is DISCONNECTED rather than
+// wrong-chain — you cannot be on the wrong chain before connecting. The
+// wrong-chain header is covered by section 4. What matters here is that the
+// header still offers an action while the reads came from the gateway.
+check('the header still offers a connect action',
+  /connect wallet/i.test(await foreign.locator('#walletSlot').innerText()));
+
+// ---------------------------------------------------------------------------
 section('7. An insecure page says so, instead of looping the visitor');
 
 // Not forced: this is the browser's real verdict on plain http.
